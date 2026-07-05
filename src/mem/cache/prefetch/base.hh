@@ -51,6 +51,7 @@
 #include "arch/generic/tlb.hh"
 #include "base/compiler.hh"
 #include "base/statistics.hh"
+#include "mem/cache/cache_blk.hh"
 #include "base/types.hh"
 #include "mem/cache/cache_probe_arg.hh"
 #include "mem/packet.hh"
@@ -286,6 +287,7 @@ class Base : public ClockedObject
 
     /** The block size of the parent cache. */
     unsigned blkSize;
+    unsigned num_cores;
 
     /** log_2(block size of the parent cache). */
     unsigned lBlkSize;
@@ -344,6 +346,7 @@ class Base : public ClockedObject
         StatGroup(statistics::Group *parent);
         statistics::Scalar demandMshrMisses;
         statistics::Scalar pfIssued;
+       const int TOT_STREAMS_CORES = 16*100;
         /** The number of times a HW-prefetched block is evicted w/o
          * reference. */
         statistics::Scalar pfUnused;
@@ -368,6 +371,11 @@ class Base : public ClockedObject
         /** The number of times a HW-prefetch is late
          * (hit in cache, MSHR, WB). */
         statistics::Formula pfLate;
+
+         statistics::Vector pfiIssuedPerStreamPerCore;
+         statistics::Vector pfiHitsPerStreamPerCore;
+         statistics::Vector pfInvalidationDeleteiHWPPerStreamPerCore;
+
     } prefetchStats;
 
     /** Total prefetches issued */
@@ -379,11 +387,22 @@ class Base : public ClockedObject
     BaseMMU * mmu;
 
   public:
-    Base(const BasePrefetcherParams &p);
-    virtual ~Base() = default;
+     int const MAX_STREAMS = 100;
+     Base(const BasePrefetcherParams &p);
+     virtual ~Base() = default;
 
-    virtual void
-    setParentInfo(System *sys, ProbeManager *pm, unsigned blk_size);
+     /**********   Abotaleb: needed to be overriden by iHWP       ******* */
+     virtual bool isIntelligentHWP() { return false; }
+     virtual bool hitIniHWP(PacketPtr pkt) { return false; }
+     virtual bool updateiHWPEntry(PacketPtr pkt , CacheBlk*& blk) { return false; }
+     virtual bool deleteiHWPEntry(const PacketPtr &pkt) { return false; }
+     virtual bool handleFill(const PacketPtr &pkt ,  CacheBlk *blk) { return false; }
+     virtual bool is_iHWP_work_parallel_to_Cache() { return false; }
+     virtual Cycles get_iHWP_data_latency() { Cycles dummy(0); return dummy; }
+     /***********************************************************************/
+
+     virtual void
+     setParentInfo(System *sys, ProbeManager *pm, unsigned blk_size);
 
     /**
      * Notify prefetcher of cache access (may be any access or just
@@ -426,6 +445,12 @@ class Base : public ClockedObject
     pfHitInMSHR()
     {
         prefetchStats.pfHitInMSHR++;
+    }
+
+    void
+    pfiHitsPerStreamPerCore(int core_id , int stream_id)
+    {
+       prefetchStats.pfiHitsPerStreamPerCore[core_id * MAX_STREAMS + stream_id]++;
     }
 
     void

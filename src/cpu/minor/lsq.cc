@@ -1180,6 +1180,9 @@ LSQ::tryToSend(LSQRequestPtr request)
             *(request->inst));
     } else {
         PacketPtr packet = request->getHeadPacket();
+        //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+        ThreadID tid = request->inst->id.threadId;
+        packet->setMetaISARequestorID(this->cpu.cpuId()+(tid<<16));
 
         DPRINTF(MinorMem, "Trying to send request: %s addr: 0x%x\n",
             *(request->inst), packet->req->getVaddr());

@@ -41,7 +41,7 @@ from common import (
 import m5.objects
 
 
-def create_mem_intf(intf, r, i, intlv_bits, intlv_size, xor_low_bit):
+def create_mem_intf(intf, r, i, intlv_bits, intlv_size, xor_low_bit, options=None):
     """
     Helper function for creating a single memory controller from the given
     options.  This function is invoked multiple times in config_mem function
@@ -66,8 +66,19 @@ def create_mem_intf(intf, r, i, intlv_bits, intlv_size, xor_low_bit):
     # mapping and row-buffer size
     interface = intf()
 
+    if issubclass(intf, m5.objects.Ramulator):
+        if not options.ramulator_config:
+            fatal("--mem-type=Ramulator requires --ramulator-config option")
+        interface.real_warm_up = options.real_warm_up
+        interface.config_file = options.ramulator_config
+        interface.output_dir = m5.options.outdir + "/"
+        print("Ramulator system configuration file = ", options.ramulator_config)
+        if options.num_cpus == 0:
+            interface.num_cpus = options.num_mem_stressors
+        else:
+            interface.num_cpus = options.num_cpus
     # Only do this for DRAMs
-    if issubclass(intf, m5.objects.DRAMInterface):
+    elif issubclass(intf, m5.objects.DRAMInterface):
         # If the channel bits are appearing after the column
         # bits, we need to add the appropriate number of bits
         # for the row buffer size
@@ -144,6 +155,9 @@ def config_mem(options, system):
     opt_dram_powerdown = getattr(options, "enable_dram_powerdown", None)
     opt_mem_channels_intlv = getattr(options, "mem_channels_intlv", 128)
     opt_xor_low_bit = getattr(options, "xor_low_bit", 0)
+    # InterStellar: Ramulator options.
+    opt_ramulator_config = getattr(options, "ramulator_config", None)
+    opt_real_warm_up = getattr(options, "real_warm_up", 100)
 
     if opt_mem_type == "HMC_2500_1x32":
         HMChost = HMC.config_hmc_host_ctrl(options, system)
@@ -152,7 +166,13 @@ def config_mem(options, system):
         xbar = system.hmc_dev.xbar
     else:
         subsystem = system
-        xbar = system.membus
+        # InterStellar: when the MetaISA engine is active (IPP), memory
+        # controllers hang off the engine's downstream metaisa_membus
+        # (created by MetaISAEngineConfig), not the CPU-side membus.
+        if getattr(options, "meta_isa_type", "None") == "IPP":
+            xbar = system.metaisa_membus
+        else:
+            xbar = system.membus
 
     if opt_tlm_memory:
         system.external_memory = m5.objects.ExternalSlave(
@@ -217,7 +237,7 @@ def config_mem(options, system):
             if opt_mem_type and (not opt_nvm_type or range_iter % 2 != 0):
                 # Create the DRAM interface
                 dram_intf = create_mem_intf(
-                    intf, r, i, intlv_bits, intlv_size, opt_xor_low_bit
+                    intf, r, i, intlv_bits, intlv_size, opt_xor_low_bit, options
                 )
 
                 # Set the number of ranks based on the command-line
@@ -240,7 +260,10 @@ def config_mem(options, system):
                     )
 
                 # Create the controller that will drive the interface
-                mem_ctrl = dram_intf.controller()
+                if opt_mem_type == "Ramulator":
+                    mem_ctrl = dram_intf
+                else:
+                    mem_ctrl = dram_intf.controller()
 
                 mem_ctrls.append(mem_ctrl)
 

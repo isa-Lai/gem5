@@ -204,6 +204,24 @@ indirect_bp_list = ObjectList(getattr(m5.objects, "IndirectPredictor", None))
 mem_list = ObjectList(getattr(m5.objects, "AbstractMemory", None))
 dram_addr_map_list = EnumList(getattr(_m5.enum_AddrMap, "enum_AddrMap", None))
 
+# InterStellar: valid choices for --meta-isa-type and --meta-isa-probe-enable.
+# These mirror the ScopedEnum values defined on BaseInterstellarEngine
+# (TypeInterstellarEngine / TypeProbeEnable) but are kept as plain lists so
+# Options.py can enumerate them without importing the SimObject.
+meta_isa_list = ["IPP", "None"]
+meta_isa_probe_enable_list = [
+    "None",
+    "Execute",
+    "Execute_ToCommit",
+    "Execute_ToCommit_Commit",
+    "OoO_Pipeline",
+    "L1Miss_Execute",
+    "L1Miss_Commit",
+    "L1Miss_ToCommit_Commit",
+    "L1Miss_Execute_ToCommit_Commit",
+    "All",
+]
+
 # Platform aliases. The platforms listed here might not be compiled,
 # we make sure they exist before we add them to the platform list.
 _platform_aliases_all = [("VExpress_GEM5", "VExpress_GEM5_V1")]

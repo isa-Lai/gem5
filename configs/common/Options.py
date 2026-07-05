@@ -158,6 +158,22 @@ def addNoISAOptions(parser):
         default="512MiB",
         help="Specify the physical memory size (single memory)",
     )
+    # InterStellar: Ramulator (multi-channel memory controller) options.
+    parser.add_argument(
+        "--ramulator-config",
+        dest="ramulator_config",
+        type=str,
+        default=None,
+        help="Ramulator configuration file; required when "
+        "--mem-type=Ramulator. Overrides other --mem-XXX options.",
+    )
+    parser.add_argument(
+        "--real-warm-up",
+        dest="real_warm_up",
+        type=int,
+        default=100,
+        help="Ramulator real warm-up time (default 100).",
+    )
     parser.add_argument(
         "--enable-dram-powerdown",
         action="store_true",
@@ -185,6 +201,7 @@ def addNoISAOptions(parser):
     )
     parser.add_argument("--caches", action="store_true")
     parser.add_argument("--l2cache", action="store_true")
+    parser.add_argument("--l3cache", action="store_true")
     parser.add_argument("--num-dirs", type=int, default=1)
     parser.add_argument("--num-l2caches", type=int, default=1)
     parser.add_argument("--num-l3caches", type=int, default=1)
@@ -251,6 +268,39 @@ def addCommonOptions(parser, default_isa: Optional[ISA] = None):
         isa = list(get_supported_isas())[0]
     else:
         isa = default_isa
+
+    # InterStellar: MetaISA central-engine optimization policy and probes.
+    parser.add_argument(
+        "--meta-isa-type",
+        default="None",
+        choices=ObjectList.meta_isa_list,
+        help="Optimization policy applied by the InterStellar MetaISA "
+        "centralized engine (IPP = Intelligent Page Policy). 'None' "
+        "disables the engine wiring.",
+    )
+    parser.add_argument(
+        "--meta-isa-probe-enable",
+        default="None",
+        choices=ObjectList.meta_isa_probe_enable_list,
+        help="Optional OoO-pipeline / L1-miss probe listeners to enable "
+        "inside the MetaISA engine. The mandatory CSR and VA->PA probes "
+        "are always enabled.",
+    )
+    parser.add_argument(
+        "--num-mem-stressors",
+        type=int,
+        default=0,
+        help="Number of RiscvMemoryStressor synthetic-traffic PEs to "
+        "include (0 = disabled).",
+    )
+    parser.add_argument(
+        "--stressorWorkLoad",
+        dest="stressorWorkLoad",
+        type=str,
+        default=None,
+        help="Memory stressor workload file name (used by the stressor "
+        "entry point, not the standard se.py flow).",
+    )
 
     # system options
     parser.add_argument(

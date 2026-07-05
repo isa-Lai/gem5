@@ -63,6 +63,7 @@
 #include "mem/htm.hh"
 #include "mem/request.hh"
 #include "sim/byteswap.hh"
+#include "interstellar/base_metaisa.hpp"
 
 namespace gem5
 {
@@ -389,6 +390,33 @@ class Packet : public Printable, public Extensible<Packet>
     /// The address of the request.  This address could be virtual or
     /// physical, depending on the system configuration.
     Addr addr;
+
+    /**^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         Abotaleb : Modifications in the interconnections needed
+         for MetaISA Engine
+    */
+    // Packet IPP Type : Direct or Indirect Stream
+    uint8_t  metaISAStreamType          ;
+    // Indirect Stream ID (Maximum 256 streams)
+    uint8_t  metaISAStreamID            ;
+    // Encode both the processor ID and Thread ID
+    uint32_t metaISARequestorID         ;
+    // Next expected LLC address  (This is MetaISA Engine requirement)
+    Addr      nextAddr                  ;
+    // Stride Length (for direct stream)
+    uint16_t  metaISAStride             ;
+    // Stride Length (for direct stream)
+    uint16_t  metaISAAaccFrequency      ;
+    // is it HWP by interstellar
+    bool      is_iHWP_flag              ;
+    // is it HWP
+    bool      is_HWP_flag               ;
+    // is first Address in the stream (1 bit) -> needed for PreScheduled iBatch in MC
+    bool      is_base_addr         ;
+    //
+    bool      invalidate_stream    ;
+
+    /**vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 
     /// True if the request targets the secure memory space.
     bool _isSecure;
@@ -779,6 +807,9 @@ class Packet : public Printable, public Extensible<Packet>
 
     inline RequestorID requestorId() const { return req->requestorId(); }
 
+    bool hasStaticData() const  { return flags.isSet(STATIC_DATA); }
+    bool hasDynamicData() const { return flags.isSet(DYNAMIC_DATA); }
+
     // Network error conditions... encapsulate them as methods since
     // their encoding keeps changing (from result field to command
     // field, etc.)
@@ -805,6 +836,20 @@ class Packet : public Printable, public Extensible<Packet>
     void copyError(Packet *pkt) { assert(pkt->isError()); cmd = pkt->cmd; }
 
     Addr getAddr() const { assert(flags.isSet(VALID_ADDR)); return addr; }
+
+    /* ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        Abdelrhman Abotaleb : Added getters for the MetaISA related interfaces */
+    Addr      getNextAddr() const          { return nextAddr                  ; }
+    uint8_t   getMetaISAStreamType()       { return metaISAStreamType         ; }
+    uint8_t   getMetaISAStreamID()         { return metaISAStreamID           ; }
+    uint32_t  getMetaISARequestorID()      { return metaISARequestorID        ; }
+    uint16_t  getMetaISAStride()           { return metaISAStride             ; } /* Used with direct stream*/
+    uint16_t  getMetaISAAccessFrequency()  { return metaISAAaccFrequency       ; } /* Used with direct stream*/
+    bool      is_iHWP()                    { return is_iHWP_flag              ; }
+    bool      is_HWP()                     { return is_HWP_flag               ; }
+    bool      getIsMetaISABaseAddr()  { return is_base_addr       ; }
+    bool      getInvalidateStream()   { return invalidate_stream  ; }
+    /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
     /**
      * Update the address of this packet mid-transaction. This is used
      * by the address mapper to change an already set address to a new
@@ -813,6 +858,44 @@ class Packet : public Printable, public Extensible<Packet>
      * valid.
      */
     void setAddr(Addr _addr) { assert(flags.isSet(VALID_ADDR)); addr = _addr; }
+    /* ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        Abdelrhman Abotaleb : Added setters for the MetaISA related interfaces */
+    void    setNextAddr(Addr _addr)
+    { nextAddr = _addr; }
+    void    setMetaISAStreamType(uint8_t metaISAType)
+    {
+        this->metaISAStreamType = metaISAType;
+    }
+    void    setmetaISAAaccFrequency(uint16_t metaISAAaccFrequency)
+    {
+        this->metaISAAaccFrequency = metaISAAaccFrequency;
+    }
+    void    setIsMetaISABaseAddr(bool isBaseAddr)
+    {
+        this->is_base_addr      = isBaseAddr;
+    }
+    void    setInValidateStream(bool invalidateStream)
+    {
+        this->invalidate_stream      = invalidateStream;
+    }
+    void    setMetaISAStreamID(uint8_t _metaISAStreamID)
+    {
+        this->metaISAStreamID = _metaISAStreamID;
+    }
+    void    setMetaISARequestorID(uint32_t _metaISARequestorID)
+    {
+        this->metaISARequestorID = _metaISARequestorID;
+    }
+    void    setMetaISAStride(uint16_t stride)
+    {   this->metaISAStride = stride  ; } /* Used with direct stream*/
+
+    void set_iHWP(bool is_iHWP_value)
+    {   this->is_iHWP_flag = is_iHWP_value;}
+
+    void set_HWP(bool is_HWP_value)
+    {   this->is_HWP_flag = is_HWP_value;}
+
+    /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 
     unsigned getSize() const  { assert(flags.isSet(VALID_SIZE)); return size; }
 
@@ -883,6 +966,13 @@ class Packet : public Printable, public Extensible<Packet>
            headerDelay(0), snoopDelay(0),
            payloadDelay(0), senderState(NULL)
     {
+        //Default Stream ID Should Be None!
+        this->metaISAStreamID       = NONE_STR_ID          ;
+        this->is_iHWP_flag          = false                ;
+        this->is_HWP_flag           = false                ;
+        this->metaISAAaccFrequency  = 0                    ;
+        this->metaISARequestorID    = INVALID_REQUESTOR_ID ;
+
         flags.clear();
         if (req->hasPaddr()) {
             addr = req->getPaddr();
@@ -924,6 +1014,13 @@ class Packet : public Printable, public Extensible<Packet>
            headerDelay(0),
            snoopDelay(0), payloadDelay(0), senderState(NULL)
     {
+        //Default Stream ID Should Be None!
+        this->metaISAStreamID       = NONE_STR_ID          ;
+        this->is_iHWP_flag          = false                ;
+        this->is_HWP_flag           = false                ;
+        this->metaISAAaccFrequency  = 0                    ;
+        this->metaISARequestorID    = INVALID_REQUESTOR_ID ;
+
         flags.clear();
         if (req->hasPaddr()) {
             addr = req->getPaddr() & ~(_blkSize - 1);
@@ -955,6 +1052,19 @@ class Packet : public Printable, public Extensible<Packet>
            payloadDelay(pkt->payloadDelay),
            senderState(pkt->senderState)
     {
+
+        /*^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
+        /**** Update the copy constructor to copy all MetaISA data as well ***/
+        this->metaISARequestorID    = pkt->getMetaISARequestorID()     ;
+        this->metaISAStreamID       = pkt->getMetaISAStreamID()        ;
+        this->metaISAStreamType     = pkt->getMetaISAStreamType()      ;
+        this->metaISAAaccFrequency  = pkt->getMetaISAAccessFrequency() ;
+        this->metaISAStride         = pkt->getMetaISAStride()          ;
+        this->nextAddr              = pkt->getNextAddr()               ;
+        this->is_iHWP_flag          = pkt->is_iHWP()                   ;
+        this->is_HWP_flag           = pkt->is_HWP()                    ;
+        /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
+
         if (!clear_flags)
             flags.set(pkt->flags & COPY_FLAGS);
 

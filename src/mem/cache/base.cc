@@ -298,6 +298,7 @@ BaseCache::handleTimingReqHit(PacketPtr pkt, CacheBlk *blk, Tick request_time)
             // Request *req2 = new Request(*(pkt->req));
             RequestPtr req2 = std::make_shared<Request>(*(pkt->req));
             PacketPtr pkt2 = new Packet(req2, pkt->cmd);
+            pkt2->setMetaISARequestorID(pkt->getMetaISARequestorID());
             MSHR *mshr = allocateMissBuffer(pkt2, curTick(), true);
             // Mark the MSHR "in service" (even though it's not) to prevent
             // the cache from sending out a request.
@@ -322,6 +323,7 @@ BaseCache::handleTimingReqHit(PacketPtr pkt, CacheBlk *blk, Tick request_time)
             // out the MSHR
             PacketPtr resp_pkt =
                 new Packet(pkt->req, MemCmd::LockedRMWWriteResp);
+            resp_pkt->setMetaISARequestorID(pkt->getMetaISARequestorID());
             resp_pkt->senderState = mshr;
             recvTimingResp(resp_pkt);
         }
@@ -354,7 +356,7 @@ BaseCache::handleTimingReqHit(PacketPtr pkt, CacheBlk *blk, Tick request_time)
 
 void
 BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
-                               Tick forward_time, Tick request_time)
+                                Tick forward_time, Tick request_time)
 {
     if (writeAllocator &&
         pkt && pkt->isWrite() && !pkt->req->isUncacheable()) {
@@ -390,6 +392,56 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                 assert(pkt->req->requestorId() < system->maxRequestors());
                 stats.cmdStats(pkt).mshrHits[pkt->req->requestorId()]++;
 
+                //mark iHWP entry as requested 
+                if (prefetcher)
+                {
+                    if(prefetcher->isIntelligentHWP())
+                    {
+                        if(prefetcher->hitIniHWP(pkt))
+                        {
+                            //demand coalesced with iHWP
+                            //either update entry in iHWP as requested if data is not valid and return false 
+                            // or get then delete entry from iHWP and respond if the data is valid and return true  
+                            if(pkt->cmd==MemCmd::InvalidateReq)//If this is an invalidation, the read line should be deleted from iHWP
+                            {
+                                DPRINTF(Cache, "Invalidate Hit on iHWP, delete the entry and return!\n");
+                                prefetcher->deleteiHWPEntry(pkt);
+                            }
+                            else 
+                            {
+                                if(prefetcher->updateiHWPEntry(pkt,blk))
+                                {
+                                    prefetcher->pfiHitsPerStreamPerCore(pkt->getMetaISARequestorID(),pkt->getMetaISAStreamID());
+                                    DPRINTF(Cache, "Hit on iHWP for addr %#x (%s)\n",
+                                            pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
+                                    ppHitiHWP->notify(CacheAccessProbeArg(pkt,accessor));        
+                                    blk->clearPrefetched();
+                                    DPRINTF(Cache, "Value of is_iHWP_work_parallel_to_Cache = %d\n", prefetcher->is_iHWP_work_parallel_to_Cache());
+                                    if(prefetcher->is_iHWP_work_parallel_to_Cache())
+                                    {
+                                        DPRINTF(Cache, "Latency reduction in iHWP Hit\n");
+                                        Cycles deduceLat =  lookupLatency-prefetcher->get_iHWP_data_latency();
+                                        request_time = request_time-cyclesToTicks(deduceLat);
+                                    }
+                                    handleTimingReqHit(pkt, blk, request_time);
+                                    return; 
+                                }
+                                else
+                                {
+                                    DPRINTF(Cache, "Miss on iHWP for addr %#x (%s)\n",
+                                        pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            DPRINTF(Cache, "Not on iHWP for addr %#x (%s)\n",
+                                    pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
+                            prefetcher->incrDemandMhsrMisses();
+                        }                            
+                    }
+                }
+
                 // We use forward_time here because it is the same
                 // considering new targets. We have multiple
                 // requests for the same address here. It
@@ -413,14 +465,74 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
         // no MSHR
         assert(pkt->req->requestorId() < system->maxRequestors());
         stats.cmdStats(pkt).mshrMisses[pkt->req->requestorId()]++;
-        if (prefetcher && pkt->isDemand())
-            prefetcher->incrDemandMhsrMisses();
 
         if (pkt->isEviction() || pkt->cmd == MemCmd::WriteClean) {
             // We use forward_time here because there is an
             // writeback or writeclean, forwarded to WriteBuffer.
             allocateWriteBuffer(pkt, forward_time);
         } else {
+            // check if iHWP (interStellar HWP is enabled)
+            // then check if it hits into the iPrefetcher
+            if (prefetcher)
+            {
+                if(prefetcher->isIntelligentHWP())
+                {
+                    if(prefetcher->hitIniHWP(pkt))
+                    {
+                        //either update entry in iHWP as requested if data is not valid and return false
+                        // or get then delete entry from iHWP and respond if the data is valid and return true
+                        if(pkt->cmd==MemCmd::InvalidateReq)//If this is an invalidation, the read line should be deleted from iHWP
+                        {
+                            DPRINTF(Cache, "Invalidate Hit on iHWP, delete the entry!\n");
+                            prefetcher->deleteiHWPEntry(pkt);
+                        }
+                        else
+                        {
+                            if(prefetcher->updateiHWPEntry(pkt,blk))
+                            {
+                                prefetcher->pfiHitsPerStreamPerCore(pkt->getMetaISARequestorID(),pkt->getMetaISAStreamID());
+                                DPRINTF(Cache, "Hit on iHWP for addr %#x (%s)\n",
+                                            pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
+                                // The probe is needed to update the prefetcher stats            
+                                ppHitiHWP->notify(CacheAccessProbeArg(pkt,accessor));
+                                blk->clearPrefetched();
+                                DPRINTF(Cache, "Value of is_iHWP_work_parallel_to_Cache = %d\n", prefetcher->is_iHWP_work_parallel_to_Cache());
+                                if(prefetcher->is_iHWP_work_parallel_to_Cache())
+                                {
+                                    DPRINTF(Cache, "Latency reduction in iHWP Hit\n");
+                                    Cycles deduceLat =  lookupLatency-prefetcher->get_iHWP_data_latency();
+                                    request_time = request_time-cyclesToTicks(deduceLat);
+                                }                        
+                                handleTimingReqHit(pkt, blk, request_time);
+                                // Don't create miss packet as it hits 
+                                return; 
+                            }
+                            else
+                            {
+                                DPRINTF(Cache, "Miss on iHWP for addr %#x (%s)\n",
+                                            pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
+                                // You should create miss packet 
+                                // note MSHR is not created for iHWP (which means that the iHWP will be squashed)            
+                                if (pkt->isDemand())
+                                    prefetcher->incrDemandMhsrMisses();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        DPRINTF(Cache, "Not on iHWP for addr %#x (%s)\n",
+                                        pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
+                        if (pkt->isDemand())
+                            prefetcher->incrDemandMhsrMisses();
+                    }
+                }
+                else
+                {
+                    if (pkt->isDemand())
+                        prefetcher->incrDemandMhsrMisses();
+                }
+            }
+
             if (blk && blk->isValid()) {
                 // If we have a write miss to a valid block, we
                 // need to mark the block non-readable.  Otherwise
@@ -600,14 +712,28 @@ BaseCache::recvTimingResp(PacketPtr pkt)
     CacheBlk *blk = tags->findBlock({pkt->getAddr(), pkt->isSecure()});
 
     if (is_fill && !is_error) {
-        DPRINTF(Cache, "Block for addr %#llx being updated in Cache\n",
-                pkt->getAddr());
+        bool is_iWHP_handled = false;
+        if (prefetcher && pkt->is_iHWP())
+        {
+            // Special handling: don't fill the cache [if the entry is not overwritten]
+            // Send the response to internal iHWP buffer
+            CacheBlk *blk = nullptr;
+            DPRINTF(Cache, "Handle Fill iHWP for A:%lx\n",pkt->getAddr());          
+            blk = handleFilliHWP(pkt, blk);
+            if(prefetcher->handleFill(pkt,blk))
+                is_iWHP_handled= true ;        
+        }
+        if(!is_iWHP_handled)
+        {
+            DPRINTF(Cache, "Block for addr %#llx being updated in Cache\n",
+                    pkt->getAddr());
 
-        const bool allocate = (writeAllocator && mshr->wasWholeLineWrite) ?
-            writeAllocator->allocate() : mshr->allocOnFill();
-        blk = handleFill(pkt, blk, writebacks, allocate);
-        assert(blk != nullptr);
-        ppFill->notify(CacheAccessProbeArg(pkt, accessor));
+            const bool allocate = (writeAllocator && mshr->wasWholeLineWrite) ?
+                writeAllocator->allocate() : mshr->allocOnFill();
+            blk = handleFill(pkt, blk, writebacks, allocate);
+            assert(blk != nullptr);
+            ppFill->notify(CacheAccessProbeArg(pkt, accessor));
+        }
     }
 
     // Don't want to promote the Locked RMW Read until
@@ -704,6 +830,7 @@ BaseCache::recvAtomic(PacketPtr pkt)
         DPRINTF(CacheVerbose, "%s: packet %s found block: %s\n",
                 __func__, pkt->print(), blk->print());
         PacketPtr wb_pkt = writecleanBlk(blk, pkt->req->getDest(), pkt->id);
+        wb_pkt->setMetaISARequestorID(pkt->getMetaISARequestorID());
         writebacks.push_back(wb_pkt);
         pkt->setSatisfied();
     }
@@ -1973,6 +2100,13 @@ BaseCache::sendMSHRQueuePacket(MSHR* mshr)
         // make copy of current packet to forward, keep current
         // copy for response handling
         pkt = new Packet(tgt_pkt, false, true);
+        pkt->setMetaISARequestorID(tgt_pkt->getMetaISARequestorID());
+        pkt->set_HWP(tgt_pkt->is_HWP());
+        pkt->set_iHWP(tgt_pkt->is_iHWP());
+        pkt->setMetaISAStreamID(tgt_pkt->getMetaISAStreamID());
+        pkt->setMetaISAStreamType(tgt_pkt->getMetaISAStreamType());
+        pkt->setMetaISAStride(tgt_pkt->getMetaISAStride());
+        pkt->setIsMetaISABaseAddr(tgt_pkt->getIsMetaISABaseAddr());
         assert(!pkt->isWrite());
     }
 
@@ -2020,6 +2154,7 @@ BaseCache::sendMSHRQueuePacket(MSHR* mshr)
                     __func__, pkt->print(), blk->print());
             PacketPtr wb_pkt = writecleanBlk(blk, pkt->req->getDest(),
                                              pkt->id);
+            wb_pkt->setMetaISARequestorID(pkt->getMetaISARequestorID());
             PacketList writebacks;
             writebacks.push_back(wb_pkt);
             doWritebacks(writebacks, 0);
@@ -2575,6 +2710,8 @@ BaseCache::regProbePoints()
 {
     ppHit = new ProbePointArg<CacheAccessProbeArg>(
         this->getProbeManager(), "Hit");
+    ppHitiHWP = new ProbePointArg<CacheAccessProbeArg>(
+        this->getProbeManager(), "Hit_iHWP");
     ppMiss = new ProbePointArg<CacheAccessProbeArg>(
         this->getProbeManager(), "Miss");
     ppFill = new ProbePointArg<CacheAccessProbeArg>(
@@ -2796,6 +2933,36 @@ WriteAllocator::updateMode(Addr write_addr, unsigned write_size,
         resetDelay(blk_addr);
     }
     nextAddr = write_addr + write_size;
+}
+
+CacheBlk*
+BaseCache::handleFilliHWP(PacketPtr pkt, CacheBlk *blk)
+{
+    assert(pkt->isResponse());
+    Addr addr = pkt->getAddr();
+    bool is_secure = pkt->isSecure();
+
+    blk = new TempCacheBlk(blkSize, genTagExtractor(tags->params().indexing_policy));
+    blk->insert({addr, is_secure}); // This will validate the block
+    pkt->writeDataToBlock(blk->data, blkSize);
+
+    assert(blk->isValid());
+    assert(blk->isSecure() == is_secure);
+    blk->setCoherenceBits(CacheBlk::ReadableBit);
+
+    if (!pkt->hasSharers()) {
+        blk->setCoherenceBits(CacheBlk::WritableBit);
+        if (pkt->cacheResponding()) {
+            blk->setCoherenceBits(CacheBlk::DirtyBit);
+            gem5_assert(!isReadOnly, "Should never see dirty snoop response "
+                        "in read-only cache %s\n", name());
+        }
+    }
+
+    blk->setWhenReady(clockEdge(fillLatency) + pkt->headerDelay +
+                      pkt->payloadDelay);
+
+    return blk;     
 }
 
 } // namespace gem5

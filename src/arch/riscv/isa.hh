@@ -44,6 +44,7 @@
 #include "arch/riscv/regs/misc.hh"
 #include "arch/riscv/types.hh"
 #include "base/types.hh"
+#include "sim/probe/probe.hh"
 
 namespace gem5
 {
@@ -73,6 +74,21 @@ enum FPUStatus
 
 using VPUStatus = FPUStatus;
 
+/***********************  Abotaleb   **************************
+ *
+ * Packet to be used in the notifier can send more data
+ *  like pointer to the manager(calling ISA object)
+ *  and MetaISA CSR reg index and CSR register value
+ *
+ **************************************************************/
+struct MetaIsaCsrData
+{
+  BaseISA * pISA     ;
+  int       misc_reg ;
+  RegVal    val      ;
+};
+typedef MetaIsaCsrData* MetaIsaCsrDataPtr;
+
 class ISA : public BaseISA
 {
   protected:
@@ -81,6 +97,9 @@ class ISA : public BaseISA
     bool enableRvv;
 
     bool hpmCounterEnabled(int counter) const;
+
+    /** Probe Points. */
+    ProbePointArg<MetaIsaCsrDataPtr> *ppMetaCSRWT;
 
     // Load reserve - store conditional monitor
     const int WARN_FAILURE = 10000;
@@ -141,6 +160,9 @@ class ISA : public BaseISA
     RegVal readMiscReg(RegIndex idx) override;
     void setMiscRegNoEffect(RegIndex idx, RegVal val) override;
     void setMiscReg(RegIndex idx, RegVal val) override;
+
+    /* Add probe point to MetaISA CSR Write Signal */
+    void regProbePoints() override;
 
     // Derived class could provide knowledge of non-standard CSRs to other
     // components by overriding the two getCSRxxxMap here and properly

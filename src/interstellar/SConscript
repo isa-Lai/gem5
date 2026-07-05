@@ -1,0 +1,45 @@
+# -*- mode: python -*-
+# gem5/src/interstellar/SConscript
+# InterStellar 2.0 engine - consolidated under src/interstellar/.
+# Gated on RISC-V. Sources/SimObjects added incrementally as each component is
+# ported and verified. See migration-plan/05-build-system.md sec 1.
+Import('*')
+
+if not env['CONF']['USE_RISCV_ISA']:
+    Return()
+
+
+# ---- Sources (added incrementally as components are ported) ----
+Source('baseInterstellarEngine.cc', tags='riscv isa')
+Source('RiscvMetaISADescTable.cc',  tags='riscv isa')
+Source('RiscvMemoryStressor.cc',    tags='riscv isa')
+Source('RiscvMetaISAEngine.cc',     tags='riscv isa')
+Source('prefetcher/interstellar.cc', tags='riscv isa')
+
+# ---- SimObjects (auto-generates params/*.hh) ----
+SimObject('BaseInterstellarEngine.py', sim_objects=['BaseInterstellarEngine'],
+          enums=['TypeInterstellarEngine', 'TypeCPU', 'TypeProbeEnable'],
+          tags='riscv isa')
+SimObject('RiscvMemoryStressor.py', sim_objects=['RiscvMemoryStressor'],
+          tags='riscv isa')
+SimObject('RiscvMetaISAEngine.py',  sim_objects=['RiscvMetaISAEngine'],
+          tags='riscv isa')
+
+# ---- Debug flags (generic engine) ----
+for f in ['Interstellar_IPP', 'Interstellar_IPP_MC_PORT', 'Interstellar_IPP_DEV_PORT',
+          'Interstellar_IPP_CPU', 'Interstellar_IPP_From_LLC_MPKT',
+          'Interstellar_IPP_From_MC_MPKT']:
+    DebugFlag(f, tags='riscv isa')
+
+# ---- Debug flags (RISC-V engine + stressor) ----
+for f in ['Interstellar_Filter_Pkt', 'MetaISA_IPP_PERIOIDC', 'MetaISA_IPP_CPU',
+          'MetaISA_IPP_CSR', 'MetaISA_IPP_PARSE', 'MetaISA_IPP_PC',
+          'MetaISA_DescTable', 'MetaISA_L1DCache', 'MetaISA_LLC_Miss_All',
+          'MetaISA_LLC_Miss_Dir', 'MetaISA_LLC_Miss_Ptr', 'MetaISA_LLC_Miss_Others',
+          'MetaISA_TLB', 'MetaISA_TLB_INTERNAL', 'MetaISA_TLB_INTERNAL_Detailed',
+          'MetaISA_IPP_LOOP', 'MetaISA_IPP_DIRST', 'MetaISA_IPP_PC_TICK',
+          'MetaISA_IPP_From_LLC_MPKT', 'MetaISA_IPP_From_MC_MPKT',
+          'MetaISA_Ptr_Dump_Queue', 'MetaISA_Ptr_Logic',
+          'MemStress_MEMBUS_PKT', 'MemStress_LOAD', 'MemStress',
+          'MemStress_CSR', 'MemStress_IAD']:
+    DebugFlag(f, tags='riscv isa')

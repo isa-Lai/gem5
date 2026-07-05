@@ -449,7 +449,7 @@ class LSQ
         /** @} */
         virtual bool recvTimingResp(PacketPtr pkt) = 0;
         virtual void sendPacketToCache() = 0;
-        virtual void buildPackets() = 0;
+        virtual void buildPackets(uint32_t _metaISARequestorID) = 0;
 
         /**
          * Memory mapped IPR accesses
@@ -613,7 +613,7 @@ class LSQ
                 gem5::ThreadContext* tc, BaseMMU::Mode mode);
         virtual bool recvTimingResp(PacketPtr pkt);
         virtual void sendPacketToCache();
-        virtual void buildPackets();
+        virtual void buildPackets(uint32_t _metaISARequestorID);
         virtual Cycles handleLocalAccess(
                 gem5::ThreadContext *thread, PacketPtr pkt);
         virtual bool isCacheBlockHit(Addr blockAddr, Addr cacheBlockMask);
@@ -679,7 +679,7 @@ class LSQ
         virtual bool recvTimingResp(PacketPtr pkt);
         virtual void initiateTranslation();
         virtual void sendPacketToCache();
-        virtual void buildPackets();
+        virtual void buildPackets(uint32_t _metaISARequestorID);
 
         virtual Cycles handleLocalAccess(
                 gem5::ThreadContext *thread, PacketPtr pkt);

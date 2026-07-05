@@ -198,11 +198,19 @@ class Queued : public Base
     notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi) override;
 
     void insert(const PacketPtr &pkt, PrefetchInfo &new_pfi, int32_t priority,
-                const CacheAccessor &cache);
+                const CacheAccessor &cache, bool iHWPSrc);
 
     virtual void calculatePrefetch(const PrefetchInfo &pfi,
                                    std::vector<AddrPriority> &addresses,
                                    const CacheAccessor &cache) = 0;
+
+    virtual bool calculatePrefetch(const PacketPtr &pkt,
+                                   std::vector<AddrPriority> &addresses,
+                                   const CacheAccessor &cache) { return false; }
+
+    // This function is implemented only in iHWP with internal buffer
+    virtual bool squashInternalBuffer(const PacketPtr &pkt) {return false;}
+
     PacketPtr getPacket() override;
 
     Tick nextPrefetchReadyTime() const override

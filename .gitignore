@@ -38,3 +38,9 @@ configs/dram/lowp_sweep.cfg
 .vscode
 typings
 .DS_Store
+
+# InterStellar simulation outputs
+/test_*/
+/out_*/
+/*.log
+/tmp.out

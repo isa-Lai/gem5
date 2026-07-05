@@ -58,10 +58,13 @@ from gem5.isas import ISA
 
 addToPath("../../")
 
+# InterStellar: MetaISA central-engine and CPU customization.
 from common import (
     CacheConfig,
     CpuConfig,
+    CPUCustomConfig,
     MemConfig,
+    MetaISAEngineConfig,
     ObjectList,
     Options,
     Simulation,
@@ -283,9 +286,13 @@ if args.ruby:
         ruby_port.connectCpuPorts(system.cpu[i])
 else:
     MemClass = Simulation.setMemClass(args)
+    # InterStellar: Customize CPU resources (ROB, LQ, SQ) for MetaISA.
+    CPUCustomConfig.customizeCPU(CPUClass, system.cpu)
     system.membus = SystemXBar()
     system.system_port = system.membus.cpu_side_ports
     CacheConfig.config_cache(args, system)
+    # InterStellar: Configure MetaISA centralized engine and wire probes.
+    MetaISAEngineConfig.config_meta_isa_engine(args, system)
     MemConfig.config_mem(args, system)
     config_filesystem(system, args)
 

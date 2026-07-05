@@ -188,6 +188,7 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
                         blockAddress(itr->pfInfo.getAddr()));
                 delete itr->pkt;
                 itr = pfq.erase(itr);
+                squashInternalBuffer(pkt);
                 statsQueued.pfRemovedDemand++;
             } else {
                 ++itr;
@@ -197,7 +198,10 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
 
     // Calculate prefetches given this access
     std::vector<AddrPriority> addresses;
-    calculatePrefetch(pfi, addresses, cache);
+    bool iHWPSrc = calculatePrefetch(pkt, addresses, cache);
+    if (addresses.empty()) {
+        calculatePrefetch(pfi, addresses, cache);
+    }
 
     // Get the maximu number of prefetches that we are allowed to generate
     size_t max_pfs = getMaxPermittedPrefetches(addresses.size());
@@ -224,7 +228,7 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
             DPRINTF(HWPrefetch, "Found a pf candidate addr: %#x, "
                     "inserting into prefetch queue.\n", new_pfi.getAddr());
             // Create and insert the request
-            insert(pkt, new_pfi, addr_prio.second, cache);
+            insert(pkt, new_pfi, addr_prio.second, cache, iHWPSrc);
             num_pfs += 1;
             if (num_pfs == max_pfs) {
                 break;
@@ -255,6 +259,8 @@ Queued::getPacket()
     pfq.pop_front();
 
     prefetchStats.pfIssued++;
+    int idx_per_stream_per_core  = MAX_STREAMS * pkt->getMetaISARequestorID() + pkt->getMetaISAStreamID();
+    prefetchStats.pfiIssuedPerStreamPerCore[idx_per_stream_per_core]++;
     issuedPrefetches += 1;
     assert(pkt != nullptr);
     DPRINTF(HWPrefetch, "Generating prefetch for %#x.\n", pkt->getAddr());
@@ -386,7 +392,7 @@ Queued::createPrefetchRequest(Addr addr, PrefetchInfo const &pfi,
 
 void
 Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
-               int32_t priority, const CacheAccessor &cache)
+               int32_t priority, const CacheAccessor &cache, bool iHWPSrc)
 {
     if (queueFilter) {
         if (alreadyInQueue(pfq, new_pfi, priority)) {
@@ -469,6 +475,9 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
         Tick pf_time = curTick() + clockPeriod() * latency;
         dpp.createPkt(target_paddr, blkSize, requestorId, tagPrefetch,
                       pf_time);
+        dpp.pkt->set_HWP(true);
+        dpp.pkt->set_iHWP(iHWPSrc);
+        dpp.pkt->setMetaISARequestorID(pkt->getMetaISARequestorID());
         DPRINTF(HWPrefetch, "Prefetch queued. "
                 "addr:%#x priority: %3d tick:%lld.\n",
                 new_pfi.getAddr(), priority, pf_time);

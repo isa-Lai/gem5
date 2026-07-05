@@ -1,0 +1,57 @@
+# -*- mode:python -*-
+# gem5/ext/ramulator/SConscript
+# Vendored Ramulator (InterStellar IPP / iBatch / FRFCFS_PriorHit memory model).
+#
+# v25.1 SCons notes (verified via the SConstruct; see migration-plan/05-build-system.md):
+#  - Use Import('env') (the per-variant env = main.Clone() at SConstruct:553), which
+#    carries CPPATH=[src,include,ext], BUILDDIR, and the compilation_db tool. Do NOT
+#    Clone('main') for compilation: main lacks the __COMPILATIONDB_Entry builder
+#    (compilation_db.generate L247), so main.Clone().SharedObject() raises
+#    AttributeError. env.Clone() inherits that builder -> works.
+#  - The build dir (build/<ISA>) is NOT in ext/ env's CPPATH: it is appended to env
+#    only inside src/SConscript:551, which runs AFTER ext/ (SConstruct L994 vs L1005).
+#    Ramulator's Statistics.h wraps gem5::Stats -> pulls in gem5 headers that include
+#    generated config/*.hh (build/<ISA>/config/). So add the build dir explicitly.
+import os
+
+Import('env')
+
+if not os.path.exists(Dir('.').srcnode().abspath + '/Ramulator'):
+    env['HAVE_RAMULATOR'] = False
+    Return()
+
+env['HAVE_RAMULATOR'] = True
+
+dram_files = []
+def DRAMFile(filename):
+    dram_files.append(File('Ramulator/src/' + filename))
+
+for f in ['Config.cpp', 'Controller.cpp', 'DDR3.cpp', 'DDR4.cpp', 'GDDR5.cpp',
+          'Gem5Wrapper.cpp', 'HBM.cpp', 'LPDDR3.cpp', 'LPDDR4.cpp',
+          'MemoryFactory.cpp', 'SALP.cpp', 'WideIO.cpp', 'WideIO2.cpp',
+          'TLDRAM.cpp', 'ALDRAM.cpp']:
+    DRAMFile(f)
+
+dramenv = env.Clone()  # inherits CPPATH=[src,include,ext] AND the compilation_db tool.
+
+# Add the build dir so generated config/*.hh (and params/, enums/) resolve.
+# Dir(env['BUILDDIR']) is the established idiom (cf. src/SConscript L160).
+dramenv.Append(CPPPATH=Dir(env['BUILDDIR']))
+
+# Ramulator's own headers (Request.h, Controller.h, ...). Unlike ext/dramsim2,
+# Ramulator has cross-directory / angle includes that don't resolve via the
+# source-file-dir rule, so its src dir must be on CPPATH (else the compiler sees
+# a stale/wrong Request definition and reports "no member" forking the real one).
+dramenv.Append(CPPPATH=Dir('Ramulator/src'))
+
+# Vendored Ramulator trips these warnings; suppress (matches the fork).
+dramenv.Append(CXXFLAGS=['-Wno-missing-field-initializers',
+                         '-Wno-unused-variable', '-Wno-reorder'])
+
+dramenv.Library('ramulator', [dramenv.SharedObject(f) for f in dram_files])
+
+# Expose ramulator's own headers to src/ and link the lib into gem5.opt
+# (same pattern as ext/dramsim2 L88-90 and ext/libfdt L47-49).
+env.Prepend(CPPPATH=Dir('.').srcnode())
+env.Append(LIBS=['ramulator'])
+env.Prepend(LIBPATH=[Dir('.')])

@@ -609,6 +609,10 @@ Fetch::finishTranslation(const Fault &fault, const RequestPtr &mem_req)
 
         // Build packet here.
         PacketPtr data_pkt = new Packet(mem_req, MemCmd::ReadReq);
+        //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+        // tid is defined at the start of this function
+        int cpuID  = this->cpu->cpuId();
+        data_pkt->setMetaISARequestorID( (cpuID)+(tid<<16));
         data_pkt->dataDynamic(new uint8_t[fetchBufferSize]);
 
         fetchBufferPC[tid] = fetchBufferBlockPC;

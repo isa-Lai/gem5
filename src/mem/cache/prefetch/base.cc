@@ -148,9 +148,19 @@ Base::StatGroup::StatGroup(statistics::Group *parent)
     ADD_STAT(pfHitInWB, statistics::units::Count::get(),
         "number of prefetches hit in the Write Buffer"),
     ADD_STAT(pfLate, statistics::units::Count::get(),
-        "number of late prefetches (hitting in cache, MSHR or WB)")
+        "number of late prefetches (hitting in cache, MSHR or WB)"),
+    ADD_STAT(pfiIssuedPerStreamPerCore, statistics::units::Count::get(),
+        "number of issued prefetches per stream per core"),
+    ADD_STAT(pfiHitsPerStreamPerCore, statistics::units::Count::get(),
+        "number of hits per stream per core"),
+    ADD_STAT(pfInvalidationDeleteiHWPPerStreamPerCore, statistics::units::Count::get(),
+        "number of deleted iHWP because of invalidations per stream per core")
 {
     using namespace statistics;
+
+    pfiIssuedPerStreamPerCore.init(TOT_STREAMS_CORES);
+    pfiHitsPerStreamPerCore.init(TOT_STREAMS_CORES);
+    pfInvalidationDeleteiHWPPerStreamPerCore.init(TOT_STREAMS_CORES);
 
     pfUnused.flags(nozero);
 

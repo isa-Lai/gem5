@@ -1202,7 +1202,7 @@ LSQ::SplitDataRequest::recvTimingResp(PacketPtr pkt)
 }
 
 void
-LSQ::SingleDataRequest::buildPackets()
+LSQ::SingleDataRequest::buildPackets(uint32_t _metaISARequestorID)
 {
     /* Retries do not create new packets. */
     if (_packets.size() == 0) {
@@ -1210,6 +1210,8 @@ LSQ::SingleDataRequest::buildPackets()
                 isLoad()
                     ?  Packet::createRead(req())
                     :  Packet::createWrite(req()));
+        //Abotaleb (Add CPU ID and Thread ID)
+        _packets.back()->setMetaISARequestorID(_metaISARequestorID);
         _packets.back()->dataStatic(_inst->memData);
         _packets.back()->senderState = this;
 
@@ -1234,7 +1236,7 @@ LSQ::SingleDataRequest::buildPackets()
 }
 
 void
-LSQ::SplitDataRequest::buildPackets()
+LSQ::SplitDataRequest::buildPackets(uint32_t _metaISARequestorID)
 {
     /* Extra data?? */
     Addr base_address = _addr;
@@ -1275,6 +1277,8 @@ LSQ::SplitDataRequest::buildPackets()
                 pkt->dataDynamic(req_data);
             }
             pkt->senderState = this;
+            //Abotaleb (Add CPU ID and Thread ID)
+            pkt->setMetaISARequestorID(_metaISARequestorID);
             _packets.push_back(pkt);
 
             // hardware transactional memory

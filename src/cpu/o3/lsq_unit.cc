@@ -873,8 +873,11 @@ LSQUnit::writebackStores()
             memset(inst->memData, 0, request->_size);
         else
             memcpy(inst->memData, storeWBIt->data(), request->_size);
-
-        request->buildPackets();
+        //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+        ThreadID tid = request->instruction()->threadNumber;
+        int cpuID  = this->cpu->cpuId();
+        uint32_t _metaISARequestorID = (cpuID)+(tid<<16);
+        request->buildPackets(_metaISARequestorID);
 
         DPRINTF(LSQUnit, "D-Cache: Writing back store idx:%i PC:%s "
                 "to Addr:%#x, data:%#x [sn:%lli]\n",
@@ -900,6 +903,10 @@ LSQUnit::writebackStores()
                         "Instantly completing it.\n",
                         inst->seqNum);
                 PacketPtr new_pkt = new Packet(*request->packet());
+                //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+                ThreadID tid = request->instruction()->threadNumber;
+                int cpuID  = this->cpu->cpuId();
+                new_pkt->setMetaISARequestorID( (cpuID)+(tid<<16));
                 WritebackEvent *wb = new WritebackEvent(inst,
                         new_pkt, this);
                 cpu->schedule(wb, curTick() + 1);
@@ -918,6 +925,10 @@ LSQUnit::writebackStores()
             gem5::ThreadContext *thread = cpu->tcBase(lsqID);
             PacketPtr main_pkt = new Packet(request->mainReq(),
                                             MemCmd::WriteReq);
+            //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+            ThreadID tid = request->instruction()->threadNumber;
+            int cpuID  = this->cpu->cpuId();
+            main_pkt->setMetaISARequestorID( (cpuID)+(tid<<16));
             main_pkt->dataStatic(inst->memData);
             request->mainReq()->localAccessor(thread, main_pkt);
             delete main_pkt;
@@ -1225,6 +1236,10 @@ LSQUnit::trySendPacket(bool isLoad, PacketPtr data_pkt)
     bool cache_got_blocked = false;
 
     LSQRequest *request = dynamic_cast<LSQRequest*>(data_pkt->senderState);
+    //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+    ThreadID tid = request->instruction()->threadNumber;
+    int cpuID  = this->cpu->cpuId();
+    data_pkt->setMetaISARequestorID( (cpuID)+(tid<<16));
 
     if (!lsq->cacheBlocked() &&
         lsq->cachePortAvailable(isLoad)) {
@@ -1395,6 +1410,10 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
 
         gem5::ThreadContext *thread = cpu->tcBase(lsqID);
         PacketPtr main_pkt = new Packet(request->mainReq(), MemCmd::ReadReq);
+        //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+        ThreadID tid = request->instruction()->threadNumber;
+        int cpuID  = this->cpu->cpuId();
+        main_pkt->setMetaISARequestorID( (cpuID)+(tid<<16));
 
         main_pkt->dataStatic(load_inst->memData);
 
@@ -1496,6 +1515,10 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
                 PacketPtr data_pkt = new Packet(request->mainReq(),
                         MemCmd::ReadReq);
                 data_pkt->dataStatic(load_inst->memData);
+                //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+                ThreadID tid = request->instruction()->threadNumber;
+                int cpuID  = this->cpu->cpuId();
+                data_pkt->setMetaISARequestorID( (cpuID)+(tid<<16));
 
                 // hardware transactional memory
                 // Store to load forwarding within a transaction
@@ -1618,7 +1641,11 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
     // if the request is not sent and cache is unblocked
     // then put the instruction into retry queue so we do not need
     // an exta cycle to re-issue and execute
-    request->buildPackets();
+    //Abotaleb : Make Pkt sending its processor and thread ID (MetaISA Requirement)
+    ThreadID tid = request->instruction()->threadNumber;
+    int cpuID  = this->cpu->cpuId();
+    uint32_t _metaISARequestorID = (cpuID)+(tid<<16);
+    request->buildPackets(_metaISARequestorID);
     request->sendPacketToCache();
     if (!request->isSent()) {
         if (!lsq->cacheBlocked()) {

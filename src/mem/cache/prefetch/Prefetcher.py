@@ -790,3 +790,62 @@ add_citation(
 }
 """,
 )
+
+
+class InterStellarPrefetcherHashedSetAssociative(TaggedSetAssociative):
+    type = "InterStellarPrefetcherHashedSetAssociative"
+    cxx_class = "gem5::prefetch::InterStellarPrefetcherHashedSetAssociative"
+    cxx_header = "interstellar/prefetcher/interstellar.hh"
+
+
+class InterStellarPrefetcher(QueuedPrefetcher):
+    type = "InterStellarPrefetcher"
+    cxx_class = "gem5::prefetch::InterStellar"
+    cxx_header = "interstellar/prefetcher/interstellar.hh"
+    iHWP_data_latency           = Param.Cycles(2, "Data access latency to iHWP")
+    iHWP_work_parallel_to_Cache = Param.Bool(True, "iHWP Works Parallel to Cache?")
+    # interstellar prefetcher needs to consult interstellar engine 
+    interstellar_nucleus = Param.BaseInterstellarEngine(NULL, "Interstellar engine attached to the prefetcher")
+    # Do not consult interstellar prefetcher on instruction accesses
+    on_inst = False
+
+    confidence_counter_bits = Param.Unsigned(
+        3, "Number of bits of the confidence counter"
+    )
+    initial_confidence = Param.Unsigned(
+        4, "Starting confidence of new entries"
+    )
+    confidence_threshold = Param.Percent(
+        50, "Prefetch generation confidence threshold"
+    )
+
+    use_requestor_id = Param.Bool(True, "Use requestor id based history")
+
+    use_cache_line_address = Param.Bool(
+        True,
+        "If this parameter is set to True, then the prefetcher will "
+        "operate on cache line addresses, else it would operate on word "
+        "addresses",
+    )
+
+    degree = Param.Int(4, "Number of prefetches to generate")
+    distance = Param.Unsigned(
+        0,
+        "How far ahead of the demand stream to start prefetching. "
+        "Skip this number of strides ahead of the first identified prefetch, "
+        "then generate `degree` prefetches at `stride` intervals. "
+        "A value of zero indicates no skip.",
+    )
+
+    table_assoc = Param.Int(4, "Associativity of the PC table")
+    table_entries = Param.MemorySize("64", "Number of entries of the PC table")
+    table_indexing_policy = Param.TaggedIndexingPolicy(
+        InterStellarPrefetcherHashedSetAssociative(
+            entry_size=1, assoc=Parent.table_assoc, size=Parent.table_entries
+        ),
+        "Indexing policy of the PC table",
+    )
+    table_replacement_policy = Param.BaseReplacementPolicy(
+        RandomRP(), "Replacement policy of the PC table"
+    )
+

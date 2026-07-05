@@ -551,6 +551,13 @@ Cache::createMissPacket(PacketPtr cpu_pkt, CacheBlk *blk,
             (force_clean_rsp ? MemCmd::ReadCleanReq : MemCmd::ReadSharedReq);
     }
     PacketPtr pkt = new Packet(cpu_pkt->req, cmd, blkSize);
+    pkt->setMetaISARequestorID(cpu_pkt->getMetaISARequestorID());
+    pkt->set_HWP(cpu_pkt->is_HWP());
+    pkt->set_iHWP(cpu_pkt->is_iHWP());
+    pkt->setMetaISAStreamID(cpu_pkt->getMetaISAStreamID());
+    pkt->setMetaISAStreamType(cpu_pkt->getMetaISAStreamType());
+    pkt->setMetaISAStride(cpu_pkt->getMetaISAStride());
+    pkt->setIsMetaISABaseAddr(cpu_pkt->getIsMetaISABaseAddr());
 
     // if there are upstream caches that have already marked the
     // packet as having sharers (not passing writable), pass that info
@@ -598,7 +605,7 @@ Cache::handleAtomicReqMiss(PacketPtr pkt, CacheBlk *&blk,
 
     PacketPtr bus_pkt = createMissPacket(pkt, blk, pkt->needsWritable(),
                                          pkt->isWholeLineWrite(blkSize));
-
+    bus_pkt->setMetaISARequestorID(pkt->getMetaISARequestorID());
     bool is_forward = (bus_pkt == nullptr);
 
     if (is_forward) {

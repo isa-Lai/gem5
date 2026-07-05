@@ -368,6 +368,9 @@ class BaseCache : public ClockedObject
     /** To probe when a cache hit occurs */
     ProbePointArg<CacheAccessProbeArg> *ppHit;
 
+    /** To probe when an iHWP hit occurs */
+    ProbePointArg<CacheAccessProbeArg> *ppHitiHWP;
+
     /** To probe when a cache miss occurs */
     ProbePointArg<CacheAccessProbeArg> *ppMiss;
 
@@ -788,6 +791,9 @@ class BaseCache : public ClockedObject
      */
     CacheBlk *handleFill(PacketPtr pkt, CacheBlk *blk,
                          PacketList &writebacks, bool allocate);
+
+    // Create the packet needed for filling the iHWP cache - This doesnt' fill the tags "actual data structure for cache"
+    CacheBlk *handleFilliHWP(PacketPtr pkt, CacheBlk *blk);
 
     /**
      * Allocate a new block and perform any necessary writebacks
