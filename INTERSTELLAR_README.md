@@ -30,18 +30,17 @@ The engine is ported phase by phase; each phase has a hard compile/run gate.
 
 | Phase | What | Status |
 |---|---|---|
-| 0 | Clean v25.1.0.1 baseline build | ✅ green |
-| 1 | Stock-file "rails" (CSR plumbing, packet metadata, cache/prefetch/CPU hooks), `PageShift=26` | 🚧 in progress |
-| 2 | Engine SimObjects under `src/interstellar/` | ⏳ pending |
-| 3 | Vendored Ramulator + gem5 wrapper | ⏳ pending |
-| 4 | Configs & Python wiring (`se.py`, `MetaISAEngineConfig.py`, CLI flags) | ⏳ pending |
-| 5 | Benchmarks & end-to-end run | ⏳ pending |
-| 6 | Golden-stats verification | ⏳ pending |
+| 0 | Clean v25.1.0.1 baseline build | ✅ Complete |
+| 1 | Stock-file "rails" (CSR plumbing, packet metadata, cache/prefetch/CPU hooks), `PageShift=26` | ✅ Complete |
+| 2 | Engine SimObjects under `src/interstellar/` | ✅ Complete |
+| 3 | Vendored Ramulator + gem5 wrapper | ✅ Complete |
+| 4 | Configs & Python wiring (`se.py`, `MetaISAEngineConfig.py`, CLI flags) | ✅ Complete |
+| 5 | Benchmarks & end-to-end run | ✅ Complete |
+| 6 | Golden-stats verification | ✅ Complete |
 
-> ⚠️ **The run command below needs Phases 2–5.** Until then, `se.py` will reject
-> `--mem-type=Ramulator` and `--meta-isa-type=IPP` (those flags land in Phase 4).
-> The scripts and config here are provided up front so the workflow is
-> reproducible the moment the port completes.
+**Migration Status: 100% Complete** ✅ — golden-stats verified against `fanosgem5/` (2026-07-25); stream-activation regressions fixed (2026-07-26). Full details in [`../CLAUDE.md`](../CLAUDE.md) → *Migration Status*.
+
+> ✅ **The system is ready to use!** All CLI flags (`--meta-isa-type`, `--ramulator-config`, `--l2-hwp-type=InterStellarPrefetcher`) are functional. See *Run benchmarks* below for usage examples.
 
 ---
 
@@ -80,11 +79,23 @@ scripts/build_gem5.sh          # optimized  -> build/RISCV/gem5.opt
 scripts/build_gem5.sh debug    # debug      -> build/RISCV/gem5.debug
 ```
 
-InterStellar custom debug flags (require the debug build):
+The engine and Ramulator are **quiet by default** — no per-request trace on
+stdout. To see the InterStellar trace, pass the relevant custom debug flag
+below. These work in both `gem5.opt` and `gem5.debug`; list with `--debug-help`.
+
 `Interstellar_Filter_Pkt`, `MetaISA_IPP_CSR`, `MetaISA_DescTable`,
 `MetaISA_LLC_Miss_{Dir,Ptr,Others}`, `MetaISA_TLB*`, `Interstellar_IPP*`,
-`MemStress*`, `Ramulator`. List with `--debug-help`; enable with
-`--debug-flags=<name>`.
+`MemStress*`, `Ramulator`. Enable with `--debug-flags=<name>` — this is a gem5
+main option, so it must come **before** the config script on the command line:
+```bash
+./build/RISCV/gem5.opt --debug-flags=MetaISA_LLC_Miss_Dir,MetaISA_DescTable \
+    configs/example/se.py ...
+```
+`MetaISA_LLC_Miss_Dir` shows stream match SUCCESS/FAILED for direct streams
+(atax/bicg); `MetaISA_DescTable` shows the descriptor table inserts/state;
+`MetaISA_TLB` shows the va2pa probe the engine listens on. For the Ramulator
+controller trace (per-request arrivals/departures/iBatch queues), add
+`print_arrivals=on` and `print_departures=on` to the `.cfg` instead.
 
 ---
 
@@ -127,15 +138,18 @@ The equivalent raw command (paper config: 8× RISC-V OoO @ 2.4 GHz):
   configs/example/se.py \
   -n 8 \
   --cpu-type=DerivO3CPU --cpu-clock=2400MHz --sys-clock=2400MHz \
-  --caches --l1d_size=64kB --l1d_assoc=2 --l1d_mshrs=16 \
-           --l1i_size=64kB --l1i_assoc=2 --l1i_mshrs=16 \
-  --l2cache --l2_size=512kB --l2_assoc=4 --l2_mshrs=32 \
-  --l3cache --l3_size=2MB   --l3_assoc=8 --l3_mshrs=64 \
+  --caches --l1d_size=64kB --l1d_assoc=2 \
+           --l1i_size=64kB --l1i_assoc=2 \
+  --l2cache --l2_size=512kB --l2_assoc=4 \
+  --l3cache --l3_size=2MB   --l3_assoc=8 \
   --mem-type=Ramulator \
   --ramulator-config=configs/ramulator/DDR4-config-Gen.cfg \
   --meta-isa-type=IPP \
   --cmd './BMs/Polybench/atax/build/.../atax_*.riscv;...(one binary per -n CPU)'
 ```
+> v25.1 `se.py` does **not** accept `--*_mshrs` flags; MSHRs come from
+> `configs/common/Caches.py` defaults (L1=4, L2=20, L3=20), not the paper values
+> below. Exposing the paper MSHR counts would require editing `Caches.py`.
 
 ### Paper configuration
 - **CPU:** 1 or 8× RISC-V out-of-order PEs @ 2.4 GHz.
@@ -169,10 +183,11 @@ and lowers the 128-bit descriptors to paired `csrrw` writes on `0x800–0x8C7`.
 ---
 
 ## Troubleshooting
-- **`--mem-type=Ramulator` rejected** — Phase 4 (configs) not done yet.
+- **`--mem-type=Ramulator` rejected** — This should no longer happen (Phase 4 complete). If it does, ensure you're using the restored `configs/example/se.py`.
 - **Page-fault storm on boot** — `PageShift` is not 26, or the binary wasn't built for 64 MiB pages.
 - **SCons picks Python 2** — run via `/usr/bin/env python3 "$(which scons)" ...`.
 - **Debug flags missing** — they require the debug build (`build/RISCV/gem5.debug`).
+- **"Stream match FAILED" messages** — Expected when running binaries not compiled with InterStellar LLVM pass. The engine is working correctly; it just has no stream descriptors to match against.
 
 ---
 

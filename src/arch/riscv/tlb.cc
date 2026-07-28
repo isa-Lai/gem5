@@ -47,6 +47,7 @@
 #include "base/str.hh"
 #include "base/trace.hh"
 #include "cpu/thread_context.hh"
+#include "debug/MetaISA_TLB.hh"
 #include "debug/TLB.hh"
 #include "debug/TLBVerbose.hh"
 #include "mem/page_table.hh"
@@ -95,6 +96,21 @@ Walker *
 TLB::getWalker()
 {
     return walker;
+}
+
+void
+TLB::regProbePoints()
+{
+    ppVA2PA = new ProbePointArg<RequestPtr>(this->getProbeManager(), "va2pa");
+}
+
+void
+TLB::startup()
+{
+    // Register probe points during gem5 initialization
+    DPRINTF(MetaISA_TLB, "TLB::startup() called - registering va2pa probe point\n");
+    regProbePoints();
+    DPRINTF(MetaISA_TLB, "TLB::startup() completed - va2pa probe point created at %p\n", ppVA2PA);
 }
 
 void
@@ -578,6 +594,13 @@ TLB::translate(const RequestPtr &req, ThreadContext *tc,
         if (!delayed && fault == NoFault) {
             fault = pma->check(req, mode);
         }
+
+        // Fire va2pa probe for InterStellar TLB inverse population
+        if (!delayed && fault == NoFault && req->hasPaddr() && ppVA2PA->hasListeners()) {
+            DPRINTF(MetaISA_TLB, "TLB::translate (main): Firing va2pa probe for VA=%lx PA=%lx\n", req->getVaddr(), req->getPaddr());
+            ppVA2PA->notify(req);
+        }
+
         return fault;
     } else {
         // In the O3 CPU model, sometimes a memory access will be speculatively
@@ -605,6 +628,11 @@ TLB::translate(const RequestPtr &req, ThreadContext *tc,
             return std::make_shared<GenericPageTableFault>(req->getVaddr());
 
         req->setPaddr(paddr);
+        // Fire va2pa probe for InterStellar TLB inverse population
+        if (ppVA2PA->hasListeners()) {
+            DPRINTF(MetaISA_TLB, "TLB::translateFunctional: Firing va2pa probe for VA=%lx PA=%lx\n", req->getVaddr(), req->getPaddr());
+            ppVA2PA->notify(req);
+        }
 
         return NoFault;
     }
@@ -679,6 +707,12 @@ TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc,
 
     DPRINTF(TLB, "Translated (functional) %#x -> %#x.\n", vaddr, paddr);
     req->setPaddr(paddr);
+    // Fire va2pa probe for InterStellar TLB inverse population
+    // CRITICAL: Fire AFTER setPaddr so request has physical address
+    if (ppVA2PA->hasListeners()) {
+        DPRINTF(MetaISA_TLB, "TLB::translate (atomic timing): Firing va2pa probe for VA=%lx PA=%lx\n", req->getVaddr(), req->getPaddr());
+        ppVA2PA->notify(req);
+    }
     return NoFault;
 }
 

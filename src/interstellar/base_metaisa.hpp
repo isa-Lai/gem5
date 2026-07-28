@@ -116,15 +116,23 @@ typedef struct  __attribute__((__packed__)){
 
 typedef struct   __attribute__((__packed__)){
    // type-independent section: 8 bits
-   uint8_t type:6;             // descriptor types: 0..63
-                               // 0: loop descriptor
+   // Bit layout (little-endian, LSB-first): type = bits[5:0], valid = bit[6], active = bit[7].
+   // This order MUST match fanosgem5 v20 (src/arch/generic/base_metaisa.hpp) and the
+   // benchmark annotation header metaisa.hpp, which together define the on-the-wire
+   // descriptor format that every prebuilt .riscv binary emits via write_csr.
+   // An earlier v25.1 port reversed this to active/valid/type (type in bits[7:2]); that
+   // made the engine read every manually-annotated descriptor as type=48 (invalid), which
+   // silently disabled all stream matching (IPP/iBatch/iHWP inert). Do not change this
+   // order without also updating metaisa.hpp and RISCVInterStellarCodeGen.cpp to match.
+   uint8_t type:6;             // descriptor types: 0..63 (bits [5:0])
 							   // 1: direct data stream
 							   // 2: indirect data stream
-							   // 3: branch stream
-							   // 4: code slice
+							   // 3: pointer chasing
+							   // 4: branch stream
+							   // 5: code slice
+   uint8_t valid:1;            // 1: valid descriptor (bit [6])
+   uint8_t active:1;           // 1: activated descriptor (bit [7])
 
-   uint8_t valid:1;            // 1: valid descriptor (i.e., allocated entry), 0: invalid (i.e., free entry)
-   uint8_t active:1;           // 1: activated descriptor, 0: inactive
 
    // type-specific section: 120 bits
    union DescInfo{
@@ -150,11 +158,10 @@ typedef struct  __attribute__((__packed__)){
                                // 0: loop descriptor
 							   // 1: direct data stream
 							   // 2: indirect data stream
-							   // 3: branch stream
-							   // 4: code slice
+							   // 3: pointer chasing
+							   // 4: branch stream
+							   // 5: code slice
 
-   uint8_t valid:1;            // 1: valid descriptor (i.e., allocated entry), 0: invalid (i.e., free entry)
-   uint8_t active:1;           // 1: activated descriptor, 0: inactive
 
   uint8_t   parentLoopId:6;    // descriptor id of the parent loop
   uint8_t   initValLinked:1;   // 0: not linked, 1: the init value is linked to another stream

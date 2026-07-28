@@ -19,7 +19,7 @@
 #   OUTDIR    m5out directory            (default BM/<bench>/out/map2/N<N>)
 #
 # NOTE: requires the migrated InterStellar engine + Ramulator + configs
-# (Phases 2-5). Until then se.py rejects --mem-type=Ramulator / --meta-isa-type.
+# (migration complete and golden-verified; see ../CLAUDE.md).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -56,14 +56,16 @@ echo ">> outdir: $OUTDIR  (cpus=${N})"
 mkdir -p "$OUTDIR"
 
 # Paper config: RISC-V OoO @ 2.4 GHz; L1 64KiB/2; L2 512KiB/4; L3 2MiB/8; DDR4 via Ramulator.
+# NOTE: v25.1 se.py does not accept --*_mshrs flags (rejected as unrecognized);
+# MSHRs come from configs/common/Caches.py defaults (L1=4, L2=20, L3=20).
 "$GEM5_OPT" --outdir="$OUTDIR" configs/example/se.py \
     -n "$N" \
     --cpu-type=DerivO3CPU --cpu-clock=2400MHz --sys-clock=2400MHz \
     --caches \
-        --l1d_size=64kB --l1d_assoc=2 --l1d_mshrs=16 \
-        --l1i_size=64kB --l1i_assoc=2 --l1i_mshrs=16 \
-    --l2cache --l2_size=512kB --l2_assoc=4 --l2_mshrs=32 \
-    --l3cache --l3_size=2MB  --l3_assoc=8 --l3_mshrs=64 \
+        --l1d_size=64kB --l1d_assoc=2 \
+        --l1i_size=64kB --l1i_assoc=2 \
+    --l2cache --l2_size=512kB --l2_assoc=4 \
+    --l3cache --l3_size=2MB  --l3_assoc=8 \
     --mem-type=Ramulator \
     --ramulator-config="$CFG" \
     --meta-isa-type=IPP \

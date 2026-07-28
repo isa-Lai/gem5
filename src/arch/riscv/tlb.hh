@@ -119,8 +119,11 @@ class TLB : public BaseTLB
   public:
     typedef RiscvTLBParams Params;
     TLB(const Params &p);
+    ProbePointArg<RequestPtr> *ppVA2PA;
 
     Walker *getWalker();
+    void regProbePoints();
+    void startup() override;
 
     void takeOverFrom(BaseTLB *old) override {}
 

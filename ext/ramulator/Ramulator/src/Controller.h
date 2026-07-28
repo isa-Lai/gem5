@@ -482,9 +482,9 @@ namespace ramulator
         CMD_TRACE print_cmd_trace = OFF;
         bool print_ipp_logic_trace        = false ;
         bool print_adaptive_logic_trace   = false ;
-        bool print_iprefetcher_trace         = true  ;
-        bool print_iprefetcher_trace_verbose = true; 
-        bool print_arrivals          = true  , print_departures = true ; 
+        bool print_iprefetcher_trace         = false  ;
+        bool print_iprefetcher_trace_verbose = false; 
+        bool print_arrivals          = false  , print_departures = false ; 
         int  enableHwpAwareiBatch      =  0    ; 
         bool refresh_disabled = false;
 
@@ -519,10 +519,17 @@ namespace ramulator
             pendingActq.q.clear();
             actq.q.clear();
             rtBatchQ.q.clear();
-            printf("Readq      location = %p\n",&(readq.q))  ;
-            printf("Writeq     location = %p\n",&(writeq.q)) ;
-            printf("Actq       location = %p\n",&(actq.q))   ;
-            printf("rtBatchQ   location = %p\n",&(rtBatchQ.q))   ;
+            // Queue base-address scaffolding: quiet by default; only when an
+            // InterStellar controller trace is explicitly requested via the .cfg.
+            // (The print_* members are parsed from `configs` later in this ctor,
+            //  so read the intent directly here.)
+            if (configs.contains("print_arrivals") &&
+                off_on_to_bool[configs["print_arrivals"]]) {
+                printf("Readq      location = %p\n",&(readq.q))  ;
+                printf("Writeq     location = %p\n",&(writeq.q)) ;
+                printf("Actq       location = %p\n",&(actq.q))   ;
+                printf("rtBatchQ   location = %p\n",&(rtBatchQ.q))   ;
+            }
 
             for(int ba_ind = 0 ; ba_ind < MAX_BANKS ; ba_ind++)
             {
@@ -746,11 +753,11 @@ namespace ramulator
             if  (configs.contains("print_arrivals"))
                 print_arrivals   =  off_on_to_bool[configs["print_arrivals"]];
             else 
-                print_arrivals   = true ; 
+                print_arrivals   = false ; 
             if  (configs.contains("print_departures"))
                 print_departures =  off_on_to_bool[configs["print_departures"]];
             else 
-                print_departures = true ; 
+                print_departures = false ; 
 
             totDirReq   = totDirMisPredictions   = 0;
             totInDirReq = totInDirMisPredictions = 0;
@@ -802,12 +809,17 @@ namespace ramulator
                iBufferSize =  stoi(configs["iBufferSize"]) + 1;
             else
                iBufferSize =  ramulator::DEF_IPREFETCHER_BUF_SIZE   ;
-            // TODO InterStellar Hack 
+            // TODO InterStellar Hack
             if(enableIPP)
             {
                 actq.max   = iBufferSize*MAX_BANKS;
             }
-            printf("Init queues of controller %p :\n\t readq(%d/%d)\n\t writeq(%d/%d)\n\t othersq(%d/%d)\n\t actq(%d/%d)\n",this ,  readq.size(),readq.max,writeq.size(),writeq.max,otherq.size(),otherq.max,actq.size(),actq.max);
+            // Quiet by default: only print controller queue sizes when an
+            // InterStellar controller trace is explicitly requested via the .cfg.
+            if (configs.contains("print_arrivals") &&
+                off_on_to_bool[configs["print_arrivals"]]) {
+                printf("Init queues of controller %p :\n\t readq(%d/%d)\n\t writeq(%d/%d)\n\t othersq(%d/%d)\n\t actq(%d/%d)\n",this ,  readq.size(),readq.max,writeq.size(),writeq.max,otherq.size(),otherq.max,actq.size(),actq.max);
+            }
 
             /****   Track Addresses Only  ****/
             for(int ba_id=0  ;  ba_id < MAX_BANKS ; ba_id ++ )
@@ -1667,15 +1679,21 @@ namespace ramulator
 
         void invalidateStream(Request &req,uint64_t  metaisa_winkey,int win_index)
         {
-            // if an entry for this stream exist in Misses Tracking WIndow - Remove it 
+            // Add early return if IPP not configured to prevent accessing uninitialized metaisa_window_counter
+            if(!isConfigIPP)
+            {
+                return;
+            }
+
+            // if an entry for this stream exist in Misses Tracking WIndow - Remove it
             if (metaisa_window_counter[win_index].find(metaisa_winkey) != metaisa_window_counter[win_index].end())
             {
                 metaisa_window_counter[win_index].erase(metaisa_winkey);
             }
-            // For direct stream , if entry exist in DIrSTreamTable , remove it 
+            // For direct stream , if entry exist in DIrSTreamTable , remove it
             uint64_t iDirStreamTableKey;
             iDirStreamTableKey = (( (uint64_t)req.metaISAStreamID << METAISA_REQID_BITS)     +
-                                    req.metaISARequestorID); 
+                                    req.metaISARequestorID);
             if(iDirStreamBuffer!=NULL)
                 if(iDirStreamBuffer->IDirStreamTable.find(iDirStreamTableKey)!=iDirStreamBuffer->IDirStreamTable.end())
                 {
@@ -1744,7 +1762,11 @@ namespace ramulator
                 /************* Check if special deactivate request  from MetaISA *********/
                 if(req.deactive_stream)
                 {
-                    invalidateStream(req,metaisa_winkey,win_index);
+                    // Only call invalidateStream if IPP is configured to prevent accessing uninitialized maps
+                    if(isConfigIPP)
+                    {
+                        invalidateStream(req,metaisa_winkey,win_index);
+                    }
                     //deactivateAllStreams(req.metaISARequestorID);
                     return true;
                 }

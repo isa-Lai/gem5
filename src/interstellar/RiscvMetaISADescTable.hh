@@ -129,7 +129,7 @@ private:
     {
         if(idx < 0 || idx > this->getTbl1Len())
             return nullptr;
-        return &(this->descripTable1[idx]);
+        return &(this->descTable1[0][idx]);
     }
 public:
     DescTable();
