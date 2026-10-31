@@ -35,7 +35,9 @@
 #ifndef __ARCH_RISCV_ISA_HH__
 #define __ARCH_RISCV_ISA_HH__
 
+#include <initializer_list>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -54,6 +56,8 @@ class Checkpoint;
 
 namespace RiscvISA
 {
+
+static constexpr uint64_t RVV_MAX_VLMAX = 0x10000;
 
 enum PrivilegeMode
 {
@@ -100,8 +104,6 @@ class ISA : public BaseISA
   protected:
     RiscvType _rvType;
     std::vector<RegVal> miscRegFile;
-    bool enableRvv;
-
     bool hpmCounterEnabled(int counter) const;
 
     /** Probe Points. */
@@ -136,6 +138,9 @@ class ISA : public BaseISA
      */
     PrivilegeModeSet _privilegeModeSet;
 
+    /** Effective implemented extensions exposed to software. */
+    std::vector<std::string> _reportedExtensions;
+
     /**
      * The WFI instruction can halt the execution of a hart.
      * If this variable is set true, the execution resumes if
@@ -144,20 +149,6 @@ class ISA : public BaseISA
      * interrupt becomes pending.
     */
     const bool _wfiResumeOnPending;
-
-    /**
-     * Enable Zcd extensions.
-     * Set the option to false implies the Zcmp and Zcmt is enable as c.fsdsp
-     * is overlap with them.
-     * Refs: https://github.com/riscv/riscv-isa-manual/blob/main/src/zc.adoc
-     */
-    bool _enableZcd;
-
-    /**
-     * Resumable non-maskable interrupt
-     * Set true to make NMI recoverable
-     */
-    bool _enableSmrnmi;
 
   public:
     using Params = RiscvISAParams;
@@ -221,7 +212,10 @@ class ISA : public BaseISA
 
     RiscvType rvType() const { return _rvType; }
 
-    bool getEnableRvv() const { return enableRvv; }
+    bool reportsExtension(std::string_view extension) const;
+    bool reportsAllExtensions(
+        std::initializer_list<std::string_view> extensions) const;
+    bool hasVectorExtension() const;
 
     bool virtualizationEnabled() const;
 
@@ -242,10 +236,6 @@ class ISA : public BaseISA
     PrivilegeModeSet getPrivilegeModeSet() { return _privilegeModeSet; }
 
     bool resumeOnPending() { return _wfiResumeOnPending; }
-
-    bool enableZcd() { return _enableZcd; }
-
-    bool enableSmrnmi() { return _enableSmrnmi; }
 
     virtual Addr getFaultHandlerAddr(
         RegIndex idx, uint64_t cause, bool intr) const;
