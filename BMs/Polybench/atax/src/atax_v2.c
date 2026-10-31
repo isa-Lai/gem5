@@ -107,7 +107,7 @@ void kernel_atax(int m, int n,
 #else
     arrAStride = 4 ;
 #endif
-    MISA_DirStreamDesc_t  A_metaData      = { LOOP2_ID , 0 , RESERVED , (uint64_t)&A[0][0],
+    MISA_DirStreamDesc_t  A_metaData      = { LOOP2_ID , 0 , RESERVED , ((uint64_t)A),
 											     arrAStride , 0 , RESERVED };
     MISA_Desc_t           A_DirStreamDesc; // = { DIR_STREAM , VALID , ACTIVE  ,arrA_metaData};
     A_DirStreamDesc.type   = DIR_STREAM;
@@ -126,7 +126,7 @@ int unitSize;
     unitSize = 4 ;
 #endif
     //X1
-    MISA_DirStreamDesc_t  X1_metaData      = { LOOP1_ID , 0 , RESERVED , (uint64_t)&x[0],
+    MISA_DirStreamDesc_t  X1_metaData      = { LOOP1_ID , 0 , RESERVED , ((uint64_t)x),
 											     unitSize , 0 , RESERVED };
     MISA_Desc_t           X1_DirStreamDesc; // = { DIR_STREAM , VALID , ACTIVE  ,arrA_metaData};
     X1_DirStreamDesc.type   = DIR_STREAM;
@@ -137,7 +137,7 @@ int unitSize;
     unsigned long long * X1Desc = (unsigned long long * ) &X1_DirStreamDesc;
 
     //Y1
-    MISA_DirStreamDesc_t  Y1_metaData      = { LOOP1_ID , 0 , RESERVED , (uint64_t)&y[0],
+    MISA_DirStreamDesc_t  Y1_metaData      = { LOOP1_ID , 0 , RESERVED , ((uint64_t)y),
 											     unitSize , 0 , RESERVED };
     MISA_Desc_t           Y1_DirStreamDesc; // = { DIR_STREAM , VALID , ACTIVE  ,arrA_metaData};
     Y1_DirStreamDesc.type   = DIR_STREAM;
@@ -162,6 +162,19 @@ int unitSize;
     write_csr(0x808, *(Y1Desc)  ); // P
     write_csr(0x809, *(Y1Desc+1)); //
 
+    // TMP array descriptor - CRITICAL ADDITION for stream match rate improvement
+    MISA_DirStreamDesc_t  TMP_metaData      = { LOOP2_ID , 0 , RESERVED , ((uint64_t)tmp),
+                                                 unitSize , 0 , RESERVED };
+    MISA_Desc_t           TMP_DirStreamDesc;
+    TMP_DirStreamDesc.type   = DIR_STREAM;
+    TMP_DirStreamDesc.valid  = VALID;
+    TMP_DirStreamDesc.active =  ACTIVE ;
+    TMP_DirStreamDesc.descInfo.streamDesc=TMP_metaData;
+    unsigned long long * TMPDesc = (unsigned long long * ) &TMP_DirStreamDesc;
+
+    write_csr(0x80A, *(TMPDesc)  ); // TMP array
+    write_csr(0x80B, *(TMPDesc+1)); //
+
 
     printf("&A[0][0]=%p , A Descriptor = %#llx %llx  \n",&A[0][0],*(matADesc),*(matADesc+1));
     printf("&A[_PB_N-1][_PB_M-1]=%p    \n",&A[_PB_M-1][_PB_N-1] );
@@ -169,6 +182,8 @@ int unitSize;
     printf("&x[_PB_M-1]=%p    \n",&x[_PB_N-1] );
     printf("&y[0]=%p , y Descriptor = %#llx %llx  \n",&y[0],*(Y1Desc),*(Y1Desc+1));
     printf("&y[_PB_M-1]=%p    \n",&y[_PB_N-1] );
+    printf("&tmp[0]=%p , tmp Descriptor = %#llx %llx  \n",&tmp[0],*(TMPDesc),*(TMPDesc+1));
+    printf("&tmp[_PB_M-1]=%p    \n",&tmp[_PB_M-1] );
 
     //m5_reset_stats(0,0);
 #pragma scop

@@ -5207,7 +5207,7 @@ namespace ramulator
                  }
 
                 /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
-                if ( (isIPPInDir && applyIPPLogicInDir) || (isIPPNone && applyIPPLogicNone) )
+                if ( isConfigIPP && ((isIPPInDir && applyIPPLogicInDir) || (isIPPNone && applyIPPLogicNone)) )
                 {
                           win_index      = applyIPPLogicInDir  ? WINDOW_TYPE::IRREG_WINDOW          : WINDOW_TYPE::NONE_WINDOW          ;
                     float threshold_high = applyIPPLogicInDir  ? metaisa_indir_window_threshold     : metaisa_none_window_threshold     ;
@@ -5276,9 +5276,11 @@ namespace ramulator
 
 
                     }
-                
+
                 /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
-                if (metaisa_window_counter[win_index].find(metaisa_sliding_window_key) != metaisa_window_counter[win_index].end())
+                // Only access window counter if IPP logic was actually applied
+                if ((applyIPPLogicDir || applyIPPLogicInDir || applyIPPLogicNone) &&
+                    metaisa_window_counter[win_index].find(metaisa_sliding_window_key) != metaisa_window_counter[win_index].end())
                     numMisses = metaisa_window_counter[win_index][metaisa_sliding_window_key]->num_misses;
                         
             }

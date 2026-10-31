@@ -41,34 +41,39 @@
 # "m5 test.py"
 
 import argparse
-import sys
 import os
+import sys
 
 import m5
 from m5.defines import buildEnv
 from m5.objects import *
 from m5.params import NULL
-from m5.util import addToPath, fatal, warn
+from m5.util import (
+    addToPath,
+    fatal,
+    warn,
+)
 
-addToPath('../')
+addToPath("../")
 
-from ruby import Ruby
-
-from common import Options
-from common import Simulation
-from common import CacheConfig
-from common import MetaISAEngineConfig
-from common import CPUCustomConfig
-from common import CpuConfig
-from common import ObjectList
-from common import MemConfig
-from common.FileSystemConfig import config_filesystem
+from common import (
+    CacheConfig,
+    CpuConfig,
+    CPUCustomConfig,
+    MemConfig,
+    MetaISAEngineConfig,
+    ObjectList,
+    Options,
+    Simulation,
+)
 from common.Caches import *
 from common.cpu2000 import *
+from common.FileSystemConfig import config_filesystem
+from ruby import Ruby
 
-#Abotaleb : Added for annotations 
-#from  gem5.simulate.exit_event_generators import default_exit_generator
-#from  gem5.simulate.simulator import Simulator
+# Abotaleb : Added for annotations
+# from  gem5.simulate.exit_event_generators import default_exit_generator
+# from  gem5.simulate.simulator import Simulator
 
 
 def get_processes(args):
@@ -80,27 +85,27 @@ def get_processes(args):
     errouts = []
     pargs = []
 
-    workloads = args.cmd.split(';')
+    workloads = args.cmd.split(";")
     print("Abotaleb::workloads")
     print(workloads)
     if args.input != "":
-        inputs = args.input.split(';')
+        inputs = args.input.split(";")
     if args.output != "":
-        outputs = args.output.split(';')
+        outputs = args.output.split(";")
     if args.errout != "":
-        errouts = args.errout.split(';')
+        errouts = args.errout.split(";")
     if args.options != "":
-        pargs = args.options.split(';')
+        pargs = args.options.split(";")
 
     idx = 0
     for wrkld in workloads:
-        process = Process(pid = 100 + idx)
+        process = Process(pid=100 + idx)
         process.executable = wrkld
         process.cwd = os.getcwd()
         process.gid = os.getgid()
 
         if args.env:
-            with open(args.env, 'r') as f:
+            with open(args.env) as f:
                 process.env = [line.rstrip() for line in f]
 
         if len(pargs) > idx:
@@ -119,24 +124,24 @@ def get_processes(args):
         idx += 1
 
     if args.smt:
-        assert(args.cpu_type == "DerivO3CPU")
+        assert args.cpu_type == "DerivO3CPU"
         return multiprocesses, idx
     else:
         return multiprocesses, 1
 
 
 parser = argparse.ArgumentParser()
- 
+
 Options.addCommonOptions(parser)
 Options.addSEOptions(parser)
 
-if '--ruby' in sys.argv:
+if "--ruby" in sys.argv:
     Ruby.define_options(parser)
-#To debug any GEM5 options 
-#print(ObjectList.mem_list.get_names())
-#exit(1)
+# To debug any GEM5 options
+# print(ObjectList.mem_list.get_names())
+# exit(1)
 args = parser.parse_args()
- 
+
 
 multiprocesses = []
 numThreads = 1
@@ -149,17 +154,23 @@ if args.bench:
 
     for app in apps:
         try:
-            if buildEnv['TARGET_ISA'] == 'arm':
-                exec("workload = %s('arm_%s', 'linux', '%s')" % (
-                        app, args.arm_iset, args.spec_input))
+            if buildEnv["TARGET_ISA"] == "arm":
+                exec(
+                    "workload = %s('arm_%s', 'linux', '%s')"
+                    % (app, args.arm_iset, args.spec_input)
+                )
             else:
-                exec("workload = %s(buildEnv['TARGET_ISA', 'linux', '%s')" % (
-                        app, args.spec_input))
+                exec(
+                    "workload = %s(buildEnv['TARGET_ISA', 'linux', '%s')"
+                    % (app, args.spec_input)
+                )
             multiprocesses.append(workload.makeProcess())
         except:
-            print("Unable to find workload for %s: %s" %
-                  (buildEnv['TARGET_ISA'], app),
-                  file=sys.stderr)
+            print(
+                "Unable to find workload for %s: %s"
+                % (buildEnv["TARGET_ISA"], app),
+                file=sys.stderr,
+            )
             sys.exit(1)
 elif args.cmd:
     multiprocesses, numThreads = get_processes(args)
@@ -181,32 +192,35 @@ if args.smt and args.num_cpus > 1:
 
 np = args.num_cpus
 mp0_path = multiprocesses[0].executable
-system = System(cpu = [CPUClass(cpu_id=i) for i in range(np)],
-                mem_mode = test_mem_mode,
-                mem_ranges = [AddrRange(args.mem_size)],
-                cache_line_size = args.cacheline_size)
+system = System(
+    cpu=[CPUClass(cpu_id=i) for i in range(np)],
+    mem_mode=test_mem_mode,
+    mem_ranges=[AddrRange(args.mem_size)],
+    cache_line_size=args.cacheline_size,
+)
 
-#Abotaleb : Enable Annotation on Workload -> Accelerate GEM5 Simulation
+# Abotaleb : Enable Annotation on Workload -> Accelerate GEM5 Simulation
 system.exit_on_work_items = False
 
 if numThreads > 1:
     system.multi_thread = True
 
 # Create a top-level voltage domain
-system.voltage_domain = VoltageDomain(voltage = args.sys_voltage)
+system.voltage_domain = VoltageDomain(voltage=args.sys_voltage)
 
 # Create a source clock for the system and set the clock period
-system.clk_domain = SrcClockDomain(clock =  args.sys_clock,
-                                   voltage_domain = system.voltage_domain)
+system.clk_domain = SrcClockDomain(
+    clock=args.sys_clock, voltage_domain=system.voltage_domain
+)
 print(args.sys_clock)
 
 # Create a CPU voltage domain
 system.cpu_voltage_domain = VoltageDomain()
 
 # Create a separate clock domain for the CPUs
-system.cpu_clk_domain = SrcClockDomain(clock = args.cpu_clock,
-                                       voltage_domain =
-                                       system.cpu_voltage_domain)
+system.cpu_clk_domain = SrcClockDomain(
+    clock=args.cpu_clock, voltage_domain=system.cpu_voltage_domain
+)
 print(args.cpu_clock)
 
 # If elastic tracing is enabled, then configure the cpu and attach the elastic
@@ -219,14 +233,14 @@ if args.elastic_trace_en:
 for cpu in system.cpu:
     cpu.clk_domain = system.cpu_clk_domain
 
-#Abotaleb : debug cpu module location
-#import inspect
+# Abotaleb : debug cpu module location
+# import inspect
 ##path = os.path.abspath(system.__file__)
-#inspect.getfile(system)
-#print(path)
+# inspect.getfile(system)
+# print(path)
 
 if ObjectList.is_kvm_cpu(CPUClass) or ObjectList.is_kvm_cpu(FutureClass):
-    if buildEnv['TARGET_ISA'] == 'x86':
+    if buildEnv["TARGET_ISA"] == "x86":
         system.kvm_vm = KvmVM()
         for process in multiprocesses:
             process.useArchPT = True
@@ -247,7 +261,7 @@ for i in range(np):
     elif len(multiprocesses) == 1:
         system.cpu[i].workload = multiprocesses[0]
     else:
-        print("Abotaleb::Processor "+str(i)+" :")
+        print("Abotaleb::Processor " + str(i) + " :")
         print(multiprocesses[i])
         system.cpu[i].workload = multiprocesses[i]
 
@@ -262,18 +276,20 @@ for i in range(np):
         system.cpu[i].branchPred = bpClass()
 
     if args.indirect_bp_type:
-        indirectBPClass = \
-            ObjectList.indirect_bp_list.get(args.indirect_bp_type)
+        indirectBPClass = ObjectList.indirect_bp_list.get(
+            args.indirect_bp_type
+        )
         system.cpu[i].branchPred.indirectBranchPred = indirectBPClass()
 
     system.cpu[i].createThreads()
 
 if args.ruby:
     Ruby.create_system(args, False, system)
-    assert(args.num_cpus == len(system.ruby._cpu_ports))
+    assert args.num_cpus == len(system.ruby._cpu_ports)
 
-    system.ruby.clk_domain = SrcClockDomain(clock = args.ruby_clock,
-                                        voltage_domain = system.voltage_domain)
+    system.ruby.clk_domain = SrcClockDomain(
+        clock=args.ruby_clock, voltage_domain=system.voltage_domain
+    )
     for i in range(np):
         ruby_port = system.ruby._cpu_ports[i]
 
@@ -287,27 +303,27 @@ if args.ruby:
 else:
     print("Abotaleb: Connecting The System")
     MemClass = Simulation.setMemClass(args)
-    CPUCustomConfig.customizeCPU(CPUClass,system.cpu)  # Extend the LQEntries , SQEntries etc (Enables Good Benchmarking for MetaISA)
+    CPUCustomConfig.customizeCPU(
+        CPUClass, system.cpu
+    )  # Extend the LQEntries , SQEntries etc (Enables Good Benchmarking for MetaISA)
     system.membus = SystemXBar()
     system.system_port = system.membus.cpu_side_ports
     CacheConfig.config_cache(args, system)
-    #print(system.cpu)
+    # print(system.cpu)
     MetaISAEngineConfig.config_meta_isa_engine(args, system)
-    #Configure Ramulator (Or Any other MC)
+    # Configure Ramulator (Or Any other MC)
     MemConfig.config_mem(args, system)
     config_filesystem(system, args)
 
-system.workload =  SEWorkload.init_compatible(mp0_path)
+system.workload = SEWorkload.init_compatible(mp0_path)
 
 if args.wait_gdb:
     system.workload.wait_for_remote_gdb = True
 
 
-root = Root(full_system = False, system = system)
+root = Root(full_system=False, system=system)
 Simulation.run(args, root, system, FutureClass)
 # Lastly we instantiate the simulator module and simulate the program.
 
-#simulator = Simulator(board=system)
-#simulator.run()
-
-
+# simulator = Simulator(board=system)
+# simulator.run()

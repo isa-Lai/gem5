@@ -927,10 +927,16 @@ ISA::setMiscReg(RegIndex idx, RegVal val)
 
           case MISCREG_METAISA0L ... MISCREG_METAISA100H:
            {
-             //Abotaleb: notify the MetaISA engine of a descriptor CSR write
-             MetaIsaCsrData metaIsaCsrData={this, (int)idx, val};
-             ppMetaCSRWT->notify(&metaIsaCsrData);
-             setMiscRegNoEffect(idx, val);
+              // Abotaleb: notify the MetaISA engine of a descriptor CSR write
+              //  InterStellar: carry the Link-descriptor base snapshotted by
+              //  writeCSR (valid only when this write is a Link L-word);
+              //  consume the pending state so it can never leak into a later,
+              //  unrelated descriptor write.
+              MetaIsaCsrData metaIsaCsrData = {
+                  this, (int)idx, val, pendingLinkBase, pendingLinkValid};
+              pendingLinkValid = false;
+              ppMetaCSRWT->notify(&metaIsaCsrData);
+              setMiscRegNoEffect(idx, val);
            }
            break;
 
@@ -1455,6 +1461,36 @@ ISA::writeCSR(ExecContext *xc, uint64_t csr, RegVal writeData)
 
     // find physical register id (MISCREG == physical)
     auto midx = csr_it->second.physIndex;
+
+    // InterStellar: snapshot a Link descriptor's base from the register file.
+    // The L-word of a Link descriptor (Type=3) carries the base register
+    // number in bits [20:16] (architectural encoding, 0 = x0 = null base);
+    // the compiler emits the link pair right after the base pointer is
+    // computed, so at this write instant the register holds the stream base.
+    // Only the ExecContext here can reach the integer register file, and
+    // writeCSR -> setMiscReg is immediate, so stash the value for the
+    // METAISA case of setMiscReg to attach to the engine probe.
+    // Manual write_csr descriptors (Types 0/1/2) never enter this path.
+    pendingLinkValid = false;
+    if (csr >= CSR_METAISA0L && csr <= CSR_METAISA100H && (csr & 1) == 0 &&
+        bits(writeData, 5, 0) == 3 && bits(writeData, 6, 6) == 1) {
+        RegIndex linkRegNum = bits(writeData, 20, 16);
+        if (linkRegNum != 0 && linkRegNum < int_reg::NumArchRegs) {
+            RegVal base = 0;
+            RegId rid(intRegClass, linkRegNum);
+            xc->tcBase()->getReg(rid, &base);
+            pendingLinkBase = base;
+            pendingLinkValid = true;
+            DPRINTF(RiscvMisc,
+                    "InterStellar: Link L-word CSR %#x: x%d -> base %#x\n",
+                    csr, linkRegNum, base);
+        } else {
+            DPRINTF(RiscvMisc,
+                    "InterStellar: Link L-word CSR %#x: null/invalid "
+                    "register x%d, no base resolution\n",
+                    csr, linkRegNum);
+        }
+    }
 
     switch (csr) {
         case CSR_SIP: case CSR_SIE:

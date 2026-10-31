@@ -11,6 +11,7 @@
 #define __RISCV_META_ISA_ENGINE_HH__
 
 #include <list>
+#include <unordered_map>
 
 #include "interstellar/base_metaisa.hpp"
 #include "RiscvMetaISADescTable.hh"
@@ -64,12 +65,22 @@ namespace gem5
 
 
 			void         resendBlockedPktEvent() override;
-			void         parseCSR         (uint64_t meta_csrLow , uint64_t meta_csrHigh);
+			void         parseCSR         (uint64_t meta_csrLow , uint64_t meta_csrHigh, int streamID, int metaISARequestorID);
             int          determineIsaCPU  (gem5::RiscvISA::ISA * pISA    );
 			MISA_Desc_t  preProcessCSRDesc(int crntCPU , uint64_t newCSR );
+			/* InterStellar: if desc is a BL=1 DIR/INDIR stream whose baseAddr
+			   names a Link descriptor with a CPU-snapshotted value, replace
+			   baseAddr with that value. Absolute (linked==0) bases are kept
+			   verbatim. */
+			void         resolveLinkBase  (MISA_Desc_t &desc, int crntDriver, int streamID);
 
 			DescTable       descTable   	                ;
 			uint64_t        tempCSR[MAX_PROCESSORS]         ;
+			/* InterStellar: resolved Link-descriptor bases per driver.
+			   Key = Link GlobalID, value = base address the CPU snapshotted
+			   from the integer register file at Link L-word CSR-write time
+			   (see ISA::writeCSR). */
+			std::unordered_map<int, Addr> linkBase[MAX_PROCESSORS];
             uint64_t        loopStartAddress; /* offset + PC when MetaISA CSR of loop changed */
 
             bool loopInstrCommitted[MAX_LOOP_DESC_NUM];
@@ -92,6 +103,7 @@ namespace gem5
 	     	void   regProbeListeners() 		    override;
 			void   processCSRWT          (const gem5::RiscvISA::MetaIsaCsrDataPtr & metaIsaCsrData);
 			void   processVA2PAOptimized (const gem5::RequestPtr& pkt    			);
+		void   processCacheAccess  (gem5::CacheAccessProbeArg const &cache_access);
 			bool   interstellarFilterPkt(PacketPtr pkt)	                    override ;
 
 			//UnBlocking Module needs to store the blocked packets for future re-try to send them

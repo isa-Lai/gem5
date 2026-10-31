@@ -86,6 +86,12 @@ struct MetaIsaCsrData
   BaseISA * pISA     ;
   int       misc_reg ;
   RegVal    val      ;
+  // InterStellar: when the written L-word is a Link descriptor (Type=3),
+  // writeCSR snapshots the referenced integer register through the
+  // ExecContext and delivers its value here so the engine can bind
+  // BL=1 stream bases to a real address.
+  RegVal resolvedBase = 0; // meaningful only when hasResolvedBase
+  bool hasResolvedBase = false;
 };
 typedef MetaIsaCsrData* MetaIsaCsrDataPtr;
 
@@ -105,6 +111,15 @@ class ISA : public BaseISA
     const int WARN_FAILURE = 10000;
     const Addr INVALID_RESERVATION_ADDR = (Addr)-1;
     std::unordered_map<int, Addr> load_reservation_addrs;
+
+    // InterStellar: hand-off from writeCSR (where the ExecContext — and with
+    // it the integer register file — is reachable) to the setMiscReg METAISA
+    // case that fires the ppMetaCSRWT probe. writeCSR -> setMiscReg is an
+    // immediate call for the same CSR write, so the pending value belongs to
+    // that write; setMiscReg consumes (clears) it after attaching it to the
+    // probe payload.
+    RegVal pendingLinkBase = 0;
+    bool pendingLinkValid = false;
 
     /** Length of each vector register in bits.
      *  VLEN in Ch. 2 of RISC-V vector spec

@@ -1,6 +1,6 @@
 /*#################################################################
 # RISC-V Interstellar Centralized Engine GEM5 Simulation Object
-# riscvInterstellarEngine.cc for RISC-V architecture 
+# riscvInterstellarEngine.cc for RISC-V architecture
 #  RiscvInterstellarEngine class implementation
 #
 # Author: Abdelrhman Mohamed Abotaleb
@@ -40,12 +40,12 @@ namespace gem5
 		RiscvMetaISAEngine::MetaISAStats::MetaISAStats(RiscvMetaISAEngine &obj):
 		statistics::Group(&obj),
 		ADD_STAT(metaisa_blocked_cycles, statistics::units::Count::get(),
-             	"number of blocked cycles in MetaISA Engine") 
+             	"number of blocked cycles in MetaISA Engine")
 		{
 
 		}
 
-		void RiscvMetaISAEngine::MetaISAStats::regStats() 
+		void RiscvMetaISAEngine::MetaISAStats::regStats()
 		{
 			    using namespace statistics;
     			statistics::Group::regStats();
@@ -67,8 +67,8 @@ namespace gem5
 			crntBPQLen =          0 ;
 			stressors_list = p.stressors_list;
 			stressors_probe_listerners_list = p.stressors_probe_listerners_list;
-			
-			
+
+
 			/**** Pointer Chasing ***/
 			this->numRemPtrStreams = 0;
 
@@ -77,11 +77,11 @@ namespace gem5
 			//[Abotaleb] Hardwire TLBInverse
 			if(cpu_vec.size()==1)
 			{
-				this->tlb_inverse.insert({2,1});			
+				this->tlb_inverse.insert({2,1});
 				DPRINTF(Interstellar_IPP, "cpu_vec length = 1 \n");
 			}
 			if(cpu_vec.size()==4)
-			{			
+			{
 			  this->tlb_inverse.insert({8,1});
 			  this->tlb_inverse.insert({9,1});
 			  this->tlb_inverse.insert({10,1});
@@ -90,7 +90,7 @@ namespace gem5
 
 			}
 			if(cpu_vec.size()==8)
-			{			
+			{
 			  this->tlb_inverse.insert({0x10,1});
 			  this->tlb_inverse.insert({0x11,1});
 			  this->tlb_inverse.insert({0x12,1});
@@ -103,7 +103,7 @@ namespace gem5
 
 			}
 			if(cpu_vec.size()==16)
-			{			
+			{
 			  this->tlb_inverse.insert({0x20,1});
 			  this->tlb_inverse.insert({0x21,1});
 			  this->tlb_inverse.insert({0x22,1});
@@ -119,12 +119,12 @@ namespace gem5
 			  this->tlb_inverse.insert({0x2c,1});
 			  this->tlb_inverse.insert({0x2d,1});
 			  this->tlb_inverse.insert({0x2e,1});
-			  this->tlb_inverse.insert({0x2f,1});			  
+			  this->tlb_inverse.insert({0x2f,1});
      		  DPRINTF(Interstellar_IPP, "cpu_vec length= 16 \n");
 
 			}
 			if(cpu_vec.size()==32)
-			{			
+			{
 			  this->tlb_inverse.insert({0x40,1});
 			  this->tlb_inverse.insert({0x41,1});
 			  this->tlb_inverse.insert({0x42,1});
@@ -156,13 +156,13 @@ namespace gem5
 			  this->tlb_inverse.insert({0x5c,1});
 			  this->tlb_inverse.insert({0x5d,1});
 			  this->tlb_inverse.insert({0x5e,1});
-			  this->tlb_inverse.insert({0x5f,1});			  			  
+			  this->tlb_inverse.insert({0x5f,1});
      		  DPRINTF(Interstellar_IPP, "cpu_vec length= 32 \n");
 
-			}			
+			}
 			DPRINTF(Interstellar_IPP, "RISCV TLBInverse Is Initialized!\n");
 
-			
+
 
 		}
 
@@ -175,10 +175,10 @@ namespace gem5
 			{
 				drivingCoreType = CPU;
 
-			  
-				
+
+
 				//[Abotaleb] For Fast Simulation : Hardwire TLBInverse (succed with 1 page for whole heap -> for more pages and multicore won't work)
-				
+
 				// Attach listener to "va2pa" probe "ppTLB"  [ Virtual to Physical Translation ]
 				DPRINTF(MetaISA_TLB, "InterStellar: Connecting to TLB[%zu] va2pa probe...\n", i);
 				dTLB_probe_listerners_list[i]->connectListener<ProbeListenerArg<RiscvMetaISAEngine, gem5::RequestPtr>>(this, "va2pa", &RiscvMetaISAEngine::processVA2PAOptimized);
@@ -198,7 +198,7 @@ namespace gem5
 
 				stressors_probe_listerners_list[i]->connectListener<ProbeListenerArg<RiscvMetaISAEngine, gem5::RiscvISA::MetaIsaCsrDataPtr>>(this, "memStressor_csrwt", &RiscvMetaISAEngine::processCSRWT);
 				stressors_probe_listerners_list[i]->connectListener<ProbeListenerArg<RiscvMetaISAEngine, gem5::RequestPtr>>(this, "va2pa", &RiscvMetaISAEngine::processVA2PAOptimized);
-				DPRINTF(Interstellar_IPP, "MetaISA Registering listeners on the memory stressor's probes\n");																										
+				DPRINTF(Interstellar_IPP, "MetaISA Registering listeners on the memory stressor's probes\n");
 			}
 		}
 
@@ -251,12 +251,38 @@ namespace gem5
 				uint64_t crntPC;
 				if (cpu_type == TypeCPU::O3CPU || cpu_type == TypeCPU::DerivO3CPU)
 					uint64_t crntPC = ((gem5::o3::CPU*) (cpu_vec[crntCPU]))->pcState(tid).instAddr();
-				else 
+				else
 					uint64_t crntPC =  0; // @TODO : How to compute address in other cpu models ? (gem5::BaseCPU)  cpu_vec[crntCPU]->getContext(0)->get
 				/* Take care that this field is of 32-bit length */
 				/* it may be recommended to hash the PC  % (2^32)
 				which is simply in c ; casting uint64_t to uint32_t */
 				DPRINTF(Interstellar_IPP, "%s[%d] : Loop Descriptor Object Inserted to Descriptor Table\n",drivingCoreName, crntCPU);
+				/* InterStellar: resolve linked loop bounds (SL/EL). Runtime
+				   loop bounds (e.g. a kernel's length parameter) are emitted
+				   with initValLinked/endValLinked=1 and the initVal/endVal
+				   fields holding the Link GlobalID; substitute the value the
+				   CPU snapshotted from the register file when that Link
+				   L-word was written (same mechanism as stream BL=1 bases,
+				   see resolveLinkBase). Direct bounds are kept verbatim. */
+				MISA_LoopDesc_t &loopDesc = meta_isa_obj.MISA_Desc_obj.descInfo.loopDesc;
+				if (loopDesc.initValLinked)
+				{
+					auto it = linkBase[crntCPU].find((int)loopDesc.initVal);
+					if (it != linkBase[crntCPU].end())
+						loopDesc.initVal = (uint32_t)it->second;
+					else
+						warn("InterStellar: loop SL=1 bound points to Link[%d] with no resolved value; keeping stub\n",
+					     (int)loopDesc.initVal);
+				}
+				if (loopDesc.endValLinked)
+				{
+					auto it = linkBase[crntCPU].find((int)loopDesc.endVal);
+					if (it != linkBase[crntCPU].end())
+						loopDesc.endVal = (uint32_t)it->second;
+					else
+						warn("InterStellar: loop EL=1 bound points to Link[%d] with no resolved value; keeping stub\n",
+					     (int)loopDesc.endVal);
+				}
 				DPRINTF(Interstellar_IPP, "%s[%d] : Loop Start     = 0x%llx \n",drivingCoreName, crntCPU, meta_isa_obj.MISA_Desc_obj.descInfo.loopDesc.initVal);
 				DPRINTF(Interstellar_IPP, "%s[%d] : Loop End       = 0x%llx \n",drivingCoreName, crntCPU, meta_isa_obj.MISA_Desc_obj.descInfo.loopDesc.endVal);
 				DPRINTF(Interstellar_IPP, "%s[%d] : Loop PC Offset = 0x%llx \n",drivingCoreName, crntCPU, meta_isa_obj.MISA_Desc_obj.descInfo.loopDesc.headerPCOffset);
@@ -280,15 +306,15 @@ namespace gem5
 				DPRINTF(Interstellar_IPP, "%s[%d] : Indirect Stream Stride = 0x%llx \n",drivingCoreName, crntCPU, meta_isa_obj.MISA_Desc_obj.descInfo.stream.stride);
 
 				break;
-			}	
+			}
 			case  (PTR_CHASE):
 			{
 				DPRINTF(Interstellar_IPP, "%s[%d] : Pointer Chasing Stream Object Inserted to Descriptor Table\n", drivingCoreName,crntCPU);
 				DPRINTF(Interstellar_IPP, "%s[%d] : Pointer Chasing Head Offset = %d - Tail Offset = %d \n", drivingCoreName,crntCPU, meta_isa_obj.MISA_Desc_obj.descInfo.ptrChaseDesc.offsetNext,meta_isa_obj.MISA_Desc_obj.descInfo.ptrChaseDesc.offsetPrev);
-				DPRINTF(Interstellar_IPP, "%s[%d] : Pointer Chasing Head Address = %p - Tail Address = %p \n", drivingCoreName,crntCPU,meta_isa_obj.MISA_Desc_obj.descInfo.ptrChaseDesc.headAdddr,meta_isa_obj.MISA_Desc_obj.descInfo.ptrChaseDesc.tailAdddr);				
+				DPRINTF(Interstellar_IPP, "%s[%d] : Pointer Chasing Head Address = %p - Tail Address = %p \n", drivingCoreName,crntCPU,meta_isa_obj.MISA_Desc_obj.descInfo.ptrChaseDesc.headAdddr,meta_isa_obj.MISA_Desc_obj.descInfo.ptrChaseDesc.tailAdddr);
 				this->numRemPtrStreams++;
 				break;
-			}		
+			}
 			default:
 				break;
 			}
@@ -315,6 +341,50 @@ namespace gem5
 			return misa_desc;
 		}
 
+		/***********************************************************************
+		 *                RiscvMetaISAEngine::resolveLinkBase
+		 *  Bind a stream's base to the value the CPU snapshotted from the
+		 *  integer register file when the referenced Link descriptor's
+		 *  L-word was written (see ISA::writeCSR). Preserves the original
+		 *  behavior for absolute bases: linked==0 -> baseAddr is a real
+		 *  address and is used verbatim; only linked==1 (BL=1) streams,
+		 *  whose baseAddr holds the Link GlobalID, are rewritten here.
+		 * *********************************************************************/
+		void
+		RiscvMetaISAEngine::resolveLinkBase(MISA_Desc_t &desc, int crntDriver, int streamID)
+		{
+			if (desc.type != DIR_STREAM && desc.type != INDIR_STREAM)
+				return;
+
+			bool linked = (desc.type == DIR_STREAM) ? desc.descInfo.streamDesc.linked
+			                                        : desc.descInfo.stream.linked;
+			if (!linked)
+				return;
+
+			int linkID = (int)((desc.type == DIR_STREAM) ? desc.descInfo.streamDesc.baseAddr
+			                                             : desc.descInfo.stream.baseAddr);
+			auto &lb = linkBase[crntDriver];
+			auto it = lb.find(linkID);
+			if (it != lb.end())
+			{
+				if (desc.type == DIR_STREAM)
+					desc.descInfo.streamDesc.baseAddr = it->second;
+				else
+					desc.descInfo.stream.baseAddr = it->second;
+				DPRINTF(MetaISA_IPP_CSR, "Stream[%d] BL=1: base bound to Link[%d] = 0x%lx\n",
+				        streamID, linkID, it->second);
+			}
+			else
+			{
+				/* Emitted code writes the link pair before the stream pair;
+				   reaching this warning means the ordering was violated (or
+				   the link was never written). Keep the stub base rather than
+				   inserting a wrong address. */
+				warn("InterStellar: stream %d has BL=1 pointing to Link[%d] with no "
+				     "resolved base; keeping stub base\n", streamID, linkID);
+			}
+		}
+
 		void
 		RiscvMetaISAEngine::processCSRWT(const gem5::RiscvISA::MetaIsaCsrDataPtr &metaIsaCsrData)
 		{
@@ -326,13 +396,26 @@ namespace gem5
 			int crntDriver=-1;
 			if(stressors_list.size()>0)
 				crntDriver = 0;
-			else 	
+			else
 			    crntDriver = this->determineIsaCPU((gem5::RiscvISA::ISA *)metaIsaCsrData->pISA);
 
 			int metaISAIdx = (metaIsaCsrData->misc_reg - MISCREG_METAISA0L);
 			//printf("CSR MetaISAIdx = %d\n",metaISAIdx);
 			if (metaISAIdx % 2 == 0)
+			{
 				tempCSR[crntDriver] = metaIsaCsrData->val;
+				/* InterStellar: the ISA snapshots the Link L-word's base
+				   register value at CSR-write time; record it keyed by the
+				   Link GlobalID so later BL=1 stream inserts can bind
+				   their baseAddr to a real address. */
+				if (metaIsaCsrData->hasResolvedBase)
+				{
+					int linkID = metaISAIdx / 2;
+					linkBase[crntDriver][linkID] = metaIsaCsrData->resolvedBase;
+					DPRINTF(MetaISA_IPP_CSR, "Link[%d] base resolved from register file = 0x%lx\n",
+					        linkID, metaIsaCsrData->resolvedBase);
+				}
+			}
 			else
 			{
 				int streamID = (metaIsaCsrData->misc_reg - MISCREG_METAISA0L)/2;
@@ -342,14 +425,14 @@ namespace gem5
 				{
 					descTable.removeDesc(streamID,crntDriver);
 					// Send Fake Packet to ramulator
-					Request::Flags   reqFlags(0); 
-					// REquest size = 1 will be the same as packet size 
+					Request::Flags   reqFlags(0);
+					// REquest size = 1 will be the same as packet size
 					RequestPtr req = std::make_shared<Request>(0,1,reqFlags,gem5::Request::funcRequestorId );
 					PacketPtr invalidatePkt = new Packet(req,MemCmd::Command::WriteClean);
 					invalidatePkt->setMetaISAStreamID(streamID);
-					invalidatePkt->setInValidateStream( true); 
+					invalidatePkt->setInValidateStream( true);
 					invalidatePkt->setMetaISARequestorID(crntDriver);
-					PacketDataPtr* data = (PacketDataPtr*) malloc(sizeof(PacketDataPtr));//Dummy Data of size = 1 
+					PacketDataPtr* data = (PacketDataPtr*) malloc(sizeof(PacketDataPtr));//Dummy Data of size = 1
 					invalidatePkt->dataStatic(data);
 					if(!this->blockedPacketQueue.empty())
 					{
@@ -367,6 +450,9 @@ namespace gem5
 				else
 				{
 
+             		/* InterStellar: bind BL=1 stream bases to the CPU-snapshotted
+		 * Link value before the table derives ENDVA from BASEVA. */
+             		resolveLinkBase(preProcessedDesc, crntDriver, streamID);
              		descTable.insertDesc(preProcessedDesc,streamID, crntDriver);
 					DPRINTF(MetaISA_IPP_CSR, " -> Parent  Loop  ID = %d\n",preProcessedDesc.descInfo.streamDesc.loopDescId);
 
@@ -399,12 +485,12 @@ namespace gem5
 		RiscvMetaISAEngine::handleRequest(PacketPtr pkt)
 		{
 			DPRINTF(MetaISA_IPP_From_LLC_MPKT, "Got Timing request for addr %#x (Requestor ID =%#lx)\n", pkt->getAddr() , pkt->getMetaISARequestorID());
-			
-			//TODO  Corner Casre: Requestor ID is not set 
+
+			//TODO  Corner Casre: Requestor ID is not set
 			int num_cores = cpu_vec.size();
 			if(pkt->getMetaISARequestorID()>num_cores)
 			{
-				//In case of such request recieved 
+				//In case of such request recieved
 				//printf("FUN::Request from un-initalized source requestor ID is received!\n");
 				pkt->setMetaISARequestorID(0);
 			}
@@ -430,8 +516,8 @@ namespace gem5
 			// 			break;
 			// 	}
 			// }
- 
-							
+
+
 
 			// blocked = true;
 			uint64_t crntMissPAddr = pkt->getAddr();
@@ -453,38 +539,44 @@ namespace gem5
 			pAssocStream = descTable.getStrEntMatchLLCPAOptPerCore(crntMissPAddr, cmdType , _descType,pkt->getMetaISARequestorID(),is_base_addr,&tlb_inverse);
 
 			pkt->setMetaISAStreamType(NONE);      // Inital value work for any other requests
-			pkt->setMetaISAStreamID(NONE_STR_ID); // Assume None Stream ID at first 
+			pkt->setMetaISAStreamID(NONE_STR_ID); // Assume None Stream ID at first
 			pkt->setMetaISAStride(0);
 			pkt->setInValidateStream (false       ) ; // Valid Stream
-			pkt->setIsMetaISABaseAddr(is_base_addr) ; 
+			pkt->setIsMetaISABaseAddr(is_base_addr) ;
 
-			
+
 			//With Direct Stream , Send the Next Address
 			if(pAssocStream != nullptr)
 			{
 				uint8_t metaISAStreamID = pAssocStream->metaISAStreamID;
 				pkt->setMetaISAStreamID(metaISAStreamID);
-			 
+
 				if ( _descType==DIR_STREAM  )
 				{
 					stride = pAssocStream->entryCSRData.descInfo.streamDesc.stride;
 					pkt->setMetaISAStreamType((uint8_t)DIR_STREAM);
-					pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use 
+					pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use
 					/***
 				 	*  Search for least stride multiple that is equal to or greater cache line size
 				 	* i.e. next expected LLC miss
 				 	* @todo efficient hardware implementation !
 				 	*/
 					strideMultiple = stride;
-					while (strideMultiple < cacheLineSize)
-						strideMultiple += stride;
-					nextLLCMissPAddr = crntMissPAddr + strideMultiple;
+					/* InterStellar: a zero stride can never reach cacheLineSize;
+					   guard the loop so a degenerate descriptor (e.g. a stub
+					   base emitted with stride 0) cannot livelock the engine. */
+					if (stride != 0)
+					{
+						while (strideMultiple < cacheLineSize)
+							strideMultiple += stride;
+						nextLLCMissPAddr = crntMissPAddr + strideMultiple;
+					}
 					// descTable.incDirStrVAMultStride(pAssocDirStream,strideMultiple);
 					DPRINTF(MetaISA_LLC_Miss_All, "Direct stream is accepted at MetaISA Engine\n");
 
 				}
-				// If Indirect Stream 
-				else 
+				// If Indirect Stream
+				else
 				{
 					if ( _descType==INDIR_STREAM ||  _descType==PTR_CHASE)
 					{
@@ -497,14 +589,14 @@ namespace gem5
 					if( _descType == INDIR_STREAM)
 					{
 						stride = pAssocStream->entryCSRData.descInfo.stream.stride;
-						pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use 
+						pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use
 					}
-						
-					 
+
+
 				}
 			}
 			pkt->setNextAddr(nextLLCMissPAddr);
-			
+
 			//printf("llcMissPA = %#lx requestor id = %d , is first address = %d\n",crntMissPAddr,pkt->getMetaISARequestorID() , pkt->getIsMetaISABaseAddr()  );
 
 			DPRINTF(MetaISA_LLC_Miss_All, "Got LLC timing request on MetaISA ->  LLC (Line size = %d) Miss Req on MemBus: Addr=%#lx , Next Addr = %#lx\n",
@@ -536,30 +628,30 @@ namespace gem5
 
 
 		/**
-		 *            interstellarFilterPkt   function 
+		 *            interstellarFilterPkt   function
 		 * @brief
 		 *  I- If this address not belong to any MetaISA Stream:
 		 *		return
 		 *  II-If this address belong to a stream:
-		 *      1- Compute the next expected LLC miss Address - Stream ID   Stream Type 
-		 *      2- Update the packet 
-		 *      3- return 
+		 *      1- Compute the next expected LLC miss Address - Stream ID   Stream Type
+		 *      2- Update the packet
+		 *      3- return
 		 ***/
 		bool
-		RiscvMetaISAEngine::interstellarFilterPkt(PacketPtr pkt)	
+		RiscvMetaISAEngine::interstellarFilterPkt(PacketPtr pkt)
 		{
 			DPRINTF(Interstellar_Filter_Pkt, "Filter Packet of addr= %#x (Interstellar Requestor ID =%#lx)\n", pkt->getAddr() , pkt->getMetaISARequestorID());
-			
-			//TODO  Corner Casre: Requestor ID is not set 
+
+			//TODO  Corner Casre: Requestor ID is not set
 			int num_cores = cpu_vec.size();
 			if(pkt->getMetaISARequestorID()>num_cores)
 			{
-				//In case of such request recieved 
+				//In case of such request recieved
 				DPRINTF(Interstellar_Filter_Pkt, "interstellarFilterPkt::Filter packet from un-initalized source requestor ID !\n");
 				pkt->setMetaISARequestorID(0);
 			}
- 
- 
+
+
 			uint64_t crntMissPAddr = pkt->getAddr();
 			uint64_t stride, strideMultiple, cacheLineSize, nextLLCMissPAddr = 0x0;
 			// Get LLC Line Size
@@ -577,38 +669,44 @@ namespace gem5
 			pAssocStream = descTable.getStrEntMatchLLCPAOptPerCore(crntMissPAddr, cmdType , _descType,pkt->getMetaISARequestorID(),is_base_addr,&tlb_inverse);
 
 			pkt->setMetaISAStreamType(NONE);      // Inital value work for any other requests
-			pkt->setMetaISAStreamID(NONE_STR_ID); // Assume None Stream ID at first 
+			pkt->setMetaISAStreamID(NONE_STR_ID); // Assume None Stream ID at first
 			pkt->setMetaISAStride(0);
 			pkt->setInValidateStream (false       ) ; // Valid Stream
-			pkt->setIsMetaISABaseAddr(is_base_addr) ; 
+			pkt->setIsMetaISABaseAddr(is_base_addr) ;
 
-			
+
 			//With Direct Stream , Send the Next Address
 			if(pAssocStream != nullptr)
 			{
 				uint8_t metaISAStreamID = pAssocStream->metaISAStreamID;
 				pkt->setMetaISAStreamID(metaISAStreamID);
-			 
+
 				if ( _descType==DIR_STREAM  )
 				{
 					stride = pAssocStream->entryCSRData.descInfo.streamDesc.stride;
 					pkt->setMetaISAStreamType((uint8_t)DIR_STREAM);
-					pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use 
+					pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use
 					/***
 				 	*  Search for least stride multiple that is equal to or greater cache line size
 				 	* i.e. next expected LLC miss
 				 	* @todo efficient hardware implementation !
 				 	*/
 					strideMultiple = stride;
-					while (strideMultiple < cacheLineSize)
-						strideMultiple += stride;
-					nextLLCMissPAddr = crntMissPAddr + strideMultiple;
+					/* InterStellar: a zero stride can never reach cacheLineSize;
+					   guard the loop so a degenerate descriptor (e.g. a stub
+					   base emitted with stride 0) cannot livelock the engine. */
+					if (stride != 0)
+					{
+						while (strideMultiple < cacheLineSize)
+							strideMultiple += stride;
+						nextLLCMissPAddr = crntMissPAddr + strideMultiple;
+					}
 					// descTable.incDirStrVAMultStride(pAssocDirStream,strideMultiple);
 					DPRINTF(Interstellar_Filter_Pkt, "Direct stream is accepted at Interstellar Engine\n");
 
 				}
-				// If Indirect Stream 
-				else 
+				// If Indirect Stream
+				else
 				{
 					if ( _descType==INDIR_STREAM ||  _descType==PTR_CHASE)
 					{
@@ -621,39 +719,39 @@ namespace gem5
 					if( _descType == INDIR_STREAM)
 					{
 						stride = pAssocStream->entryCSRData.descInfo.stream.stride;
-						pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use 
+						pkt->setMetaISAStride((uint16_t) stride)      ; //For iPrefetcher Use
 					}
-						
-					 
+
+
 				}
 				pkt->setNextAddr(nextLLCMissPAddr);
-				return true; // Packet belongs to a stream 
+				return true; // Packet belongs to a stream
 			}
-			return false; //Packet doesn't belong to a stream 
-		}	
+			return false; //Packet doesn't belong to a stream
+		}
 
-		bool 
+		bool
 		RiscvMetaISAEngine::insertToBlockedPacketQueue(PacketPtr pkt)
 		{
-				// Increment current blocked packet queue length 
+				// Increment current blocked packet queue length
 				crntBPQLen++;
 				if(crntBPQLen==maxBPQsize)
 				{
 					DPRINTF(MetaISA_IPP_From_LLC_MPKT,  "Blocked request (%d/%d) on MetaISA -> Addr=%#lx , Next Addr = %#lx\n" , crntBPQLen,maxBPQsize , pkt->getAddr(), pkt->getNextAddr());
 					return false; // can't insert the blocked packet now , need to do re-try
 				}
-				
-				//Insert packet into the blocked packets queue 
+
+				//Insert packet into the blocked packets queue
 				//(Copy it first to avoid strage error happens when just push it then send to the coherent cross bar then memoiry (its contents are altered !))
 				//PacketPtr pPktCopy = new Packet(pkt,false,true);
 				//pPktCopy->setNextAddr(pkt->getNextAddr());
 				//blockedPacketQueue.push(pPktCopy);
 				blockedPacketQueue.push_back(pkt);
-				
+
 				/*if(!sendBlockedRequests.scheduled())
 					schedule(sendBlockedRequests,curTick() + 2*clockPeriod());
-				*/	
-			return true; 
+				*/
+			return true;
 		}
 
 		void
@@ -691,19 +789,19 @@ namespace gem5
 		bool
 		RiscvMetaISAEngine::handleResponse(PacketPtr pkt)
 		{
-			
+
 			DPRINTF(MetaISA_IPP_From_MC_MPKT, "Got response for addr %#x - Type = %d\n", pkt->getAddr(),pkt->getMetaISAStreamType());
-			
+
 			//If the sent packet was marked as pointer then extract VA from its response
 			if(pkt->getMetaISAStreamType()==PTR_CHASE)
 			{
 
-				//Extract response at position offset 
+				//Extract response at position offset
 				Table1_Entry *pAssocDirStream;
 				descType     _descType;
 				const std::string cmdType = pkt->cmdString();
 
-				
+
 				pAssocDirStream = descTable.getStrEntMatchLLCPA(pkt->getAddr(), cmdType , _descType);
 				// A PTR_CHASE-tagged response whose address matches no registered
 				// pointer-chase descriptor (e.g. a Link/base-address descriptor the
@@ -736,13 +834,13 @@ namespace gem5
 					if(offset2<=0 || offset2>64)
 						continue;
 					if(gem5::debug::MetaISA_Ptr_Logic)
-					{					
+					{
 						printf("Offset2 = %d\n",offset2);
 					}
 
 					for(int j = 0	;	j<8	;	j++)
 					{
-						ptrVAddr[vaInd] |=  (pkt->getPtr<uint8_t>()[offset2+j]<<(8*j));				
+						ptrVAddr[vaInd] |=  (pkt->getPtr<uint8_t>()[offset2+j]<<(8*j));
 					}
 					vaInd++;
 
@@ -757,7 +855,7 @@ namespace gem5
 
 				//If always we read the next pointer
 				//Then the correct offset will be :
-				//  PA of the node  - pkt->getAddr()  
+				//  PA of the node  - pkt->getAddr()
 				int actualOffset = nodePA- pkt->getAddr();
 				Addr ptrTrueVAddr;
 				if(gem5::debug::MetaISA_Ptr_Logic)
@@ -773,13 +871,13 @@ namespace gem5
 				}
 
 				//Assume data are aligned on 16 Bytes (Size of Node)
-				
+
 				ptrTrueVAddr=0x0;
 				for(int j = 0	;	j<8	;	j++)
 				{
-					ptrTrueVAddr |=  (pkt->getPtr<uint8_t>()[actualOffset+j]<<(8*j));				
+					ptrTrueVAddr |=  (pkt->getPtr<uint8_t>()[actualOffset+j]<<(8*j));
 				}
-				
+
 				//The response will be the new pointer stream expected virtual address
 				this->descTable.setPtrChaseVA(loc2,ptrTrueVAddr);
 				DPRINTF(MetaISA_Ptr_Logic, "Pointer descriptor fetched from node: PA =%#lx VA is updated to %#lx\n",pkt->getAddr(),ptrTrueVAddr);
@@ -788,7 +886,7 @@ namespace gem5
 				llcSidePort.trySendRetry();
 				return true;
 
-			}			
+			}
 
 
 			/** Only Run "Pointer Chasing Logic" if:
@@ -809,19 +907,19 @@ namespace gem5
 				llcSidePort.sendPacket(pkt);
 				llcSidePort.trySendRetry();
 				return true;
-			}				
+			}
 
-			//Check if inserted before 
+			//Check if inserted before
 			bool done = false;
 			for(std::vector<cacheLine>::iterator it = respDataQueue.begin(); it != respDataQueue.end(); ++it)
-        		if((*it).ownerAddr==pkt->getAddr()) 
+        		if((*it).ownerAddr==pkt->getAddr())
 				{
-					//May be it is useful to mark this address 
+					//May be it is useful to mark this address
 					// as a static data and remove it from respDataQueue
 					respDataQueue.erase(it);
 					DPRINTF(MetaISA_Ptr_Dump_Queue, " PTR Examination: Static addr %#x\n", pkt->getAddr());
 					llcSidePort.sendPacket(pkt);
-					llcSidePort.trySendRetry();					
+					llcSidePort.trySendRetry();
 					return true;
 				}
 
@@ -830,23 +928,23 @@ namespace gem5
 			//Optimize use memcpy
 			for(int i=0;i<cache_line_size;i++)
 				newDataLine.respData[i] = pkt->getPtr<uint8_t>()[i];
-			newDataLine.ownerAddr = pkt->getAddr();//physical address used to elimnate static data 
+			newDataLine.ownerAddr = pkt->getAddr();//physical address used to elimnate static data
 			respDataQueue.push_back(newDataLine);
 			//DPRINTF(MetaISA_Ptr_Dump_Queue,"Response Queue related to PAddress = %lx",(*it).ownerAddr);
-			
+
 			if (::gem5::debug::MetaISA_Ptr_Dump_Queue)
 			{
 				DPRINTF(MetaISA_Ptr_Dump_Queue,"Response Data Queue : ");
 				for(std::vector<cacheLine>::iterator it = respDataQueue.begin(); it != respDataQueue.end(); ++it)
         		{
 					DPRINTF(MetaISA_Ptr_Dump_Queue,"Response Queue related to PAddress = %lx\n",(*it).ownerAddr);
-					
+
 					printf("\t\tData = ");
 					for(int i=0;i<cache_line_size;i++)
 					{
 						if(i%16==0)
 							printf("\n\t\t");
-						printf("%x ",(*it).respData[i]);	
+						printf("%x ",(*it).respData[i]);
 					}
 					printf("\n");
 				}
@@ -864,14 +962,14 @@ namespace gem5
 		/***********************************************************************
 		 *                 RiscvMetaISAEngine::processVA2PAOptimized
 		 *  TLB Accesses (Misses in SE Mode) CallBack
-		 *  Optimized Using TLB Inverse 
+		 *  Optimized Using TLB Inverse
 		 * @param req request processed by the TLB
 		 *
 		 * *********************************************************************/
 		void RiscvMetaISAEngine::processVA2PAOptimized(const gem5::RequestPtr &req)
 		{
 			DPRINTF(MetaISA_TLB, "processVA2PAOptimized CALLED! VA=%lx PA=%lx tick=%lu\n", req->getVaddr(), req->hasPaddr() ? req->getPaddr() : 0, curTick());
-			//Skip Insertion to TLB Inverse if added before 
+			//Skip Insertion to TLB Inverse if added before
 			// CRITICAL: Check if request has physical address BEFORE calling getPaddr()
 			if (!req->hasPaddr()) {
 				DPRINTF(MetaISA_TLB, "TLB-MISS-PROBE: request has no physical address yet (tick=%lu), skipping\n", curTick());
@@ -886,7 +984,7 @@ namespace gem5
 
 			Addr     reqVA = req->getVaddr();
 			uint64_t vpn = reqVA >> PageShift;
-			 
+
 			Table1_Entry *pAssocStream = descTable.getStrEntByVARangeOpt(reqVA);
 				// DEFENSIVE: Skip during early system initialization
 
@@ -903,19 +1001,19 @@ namespace gem5
 					return; // Not initialized yet, skip safely
 				}
 
-			
+
 			string message_stream  = "";
-			//Only Add it to TLB Inverse if it is a valid stream 
+			//Only Add it to TLB Inverse if it is a valid stream
 			if (pAssocStream != nullptr)
 			{
-				tlb_inverse[pfn] = vpn ; 
+				tlb_inverse[pfn] = vpn ;
 
 				DPRINTF(MetaISA_TLB, "TLB-1[%lx]=%lx\n",pfn,vpn);
-				//Note that the message indicates the first stream that has this PFN 
+				//Note that the message indicates the first stream that has this PFN
 				//As PFN can be shared between more than a stream .
-				message_stream  =  "First found to Lie in "+descNames[pAssocStream->entryCSRData.type]+" stream";							 		
+				message_stream  =  "First found to Lie in "+descNames[pAssocStream->entryCSRData.type]+" stream";
 			}
-			else 
+			else
 			// If Not Direct Stream or Indirect Stream , It Can be pointer Chasing
 			{
 
@@ -923,8 +1021,8 @@ namespace gem5
 				{
 					//In Slide Window Fashion , Compare the VA against the data stored in respDataQueue
 					//@TODO change the masking method to filter VAs to another suitable
-					uint64_t reqVAddr =  req->getVaddr() &  ~(CACHE_GRANULVL_MASK); /* Mask the least 6 bits -> Cache level granularity */ 
-					//Little Endian Comparison 
+					uint64_t reqVAddr =  req->getVaddr() &  ~(CACHE_GRANULVL_MASK); /* Mask the least 6 bits -> Cache level granularity */
+					//Little Endian Comparison
 					for(std::vector<cacheLine>::iterator it = respDataQueue.begin(); it != respDataQueue.end(); ++it)
 					{
 						bool areEqual ;
@@ -941,7 +1039,7 @@ namespace gem5
 							{
 								areEqual = false;
 								continue;
-							}							
+							}
 
 							for(int j = 1 ; j < 8 ;j++)
 							{
@@ -952,14 +1050,14 @@ namespace gem5
 
 									areEqual = false;
 									break;
-								}	
+								}
 							}
 							if(areEqual)//Address is found in the data
 								break;
 						}
 						if(areEqual)
-						//Address is found in data -> Pointer Type 
-						// @TODO more safety -> don't push in descriptor table unless this behaviour repeated for let's say 5 times 
+						//Address is found in data -> Pointer Type
+						// @TODO more safety -> don't push in descriptor table unless this behaviour repeated for let's say 5 times
 						{
 							if(::gem5::debug::MetaISA_Ptr_Logic)
 							{
@@ -974,7 +1072,7 @@ namespace gem5
 								}
 
 							}
-							// insert to descriptor Table 
+							// insert to descriptor Table
 							MISA_Desc_t ptrChaseMetaISA ;
 							ptrChaseMetaISA.type = PTR_CHASE;
 							ptrChaseMetaISA.valid  = 1;
@@ -985,24 +1083,24 @@ namespace gem5
 							numRemPtrStreams--;
 							if(numRemPtrStreams==0)
 								respDataQueue.clear();
-							return;//In this case return as pointer is found 
+							return;//In this case return as pointer is found
 						}
-					}	
-					
+					}
+
 				}
-				
-				//Other possible case is that the pointer is already fetched 
+
+				//Other possible case is that the pointer is already fetched
 				// But not fetched by the bound examination !!!?
 				// @todo : uncomment the following line if you want to do exhastive search rather than boundary check
 				//this->descTable.setPtrChasePABySrchAll(req->getPaddr(),req->getVaddr());
 
 
 			}
-			
+
 			string drivingCoreName = (drivingCoreType==MEM_STRESSOR)?"Mem_Stressor":"CPU";
-			
+
 			/*
-			Trial to identify the source CPU number: 
+			Trial to identify the source CPU number:
 			ThreadID tid = request->instruction()->threadNumber;
         	int cpuID  = this->cpu->cpuId();
         	uint32_t _metaISARequestorID = (cpuID)+(tid<<16);*/
@@ -1017,13 +1115,13 @@ namespace gem5
 		RiscvMetaISAEngine::startup()
 		{
 			// schedule(event, 0); // MetaISA Centralized engine should start when the processor resets (at time 0)
-			// With checkpoints , this should be updated to 
-			//schedule(event, curTick() ); 
-			// as after checkpoint is resumed , it will started from curTick >0 
+			// With checkpoints , this should be updated to
+			//schedule(event, curTick() );
+			// as after checkpoint is resumed , it will started from curTick >0
 		}
 
-		
-		
+
+
 		void
 		RiscvMetaISAEngine::parseCSR(uint64_t meta_csrLow, uint64_t meta_csrHigh, int streamID, int metaISARequestorID)
 		{
@@ -1046,6 +1144,7 @@ namespace gem5
 			{
 				DPRINTF(MetaISA_IPP_PARSE, "Direct Stream descriptor found - stride = %d, inserting into descTable\n",
 				         meta_isa_obj.MISA_Desc_obj.descInfo.streamDesc.stride);
+				resolveLinkBase(meta_isa_obj.MISA_Desc_obj, metaISARequestorID, streamID);
 				descTable.insertDesc(meta_isa_obj.MISA_Desc_obj, streamID, metaISARequestorID);
 				break;
 			}
@@ -1053,6 +1152,7 @@ namespace gem5
 			{
 				DPRINTF(MetaISA_IPP_PARSE, "InDirect Stream descriptor found - stride = %d, inserting into descTable\n",
 				         meta_isa_obj.MISA_Desc_obj.descInfo.stream.stride);
+				resolveLinkBase(meta_isa_obj.MISA_Desc_obj, metaISARequestorID, streamID);
 				descTable.insertDesc(meta_isa_obj.MISA_Desc_obj, streamID, metaISARequestorID);
 				break;
 			}
@@ -1079,18 +1179,18 @@ namespace gem5
 				DPRINTF(MetaISA_TLB, "processCacheAccess: NULL packet, skipping\n");
 				return;
 			}
-			
+
 			// Get addresses from cache packet
 			Addr pkt_addr = cache_access.pkt->getAddr();
 			Addr reqVA = cache_access.pkt->req->hasVaddr() ? cache_access.pkt->req->getVaddr() : pkt_addr;
 			Addr reqPA = cache_access.pkt->req->hasPaddr() ? cache_access.pkt->req->getPaddr() : pkt_addr;
-			
+
 			// Skip if we don't have both addresses
 			if (!cache_access.pkt->req->hasVaddr() || !cache_access.pkt->req->hasPaddr()) {
 				DPRINTF(MetaISA_TLB, "processCacheAccess: Missing VA/PA at tick=%lu, skipping\n", curTick());
 				return;
 			}
-			
+
 			uint64_t vpn = reqVA >> PageShift;
 			Addr  pfn  = reqPA >> PageShift;
 
