@@ -412,6 +412,12 @@ def addCommonOptions(parser, default_isa: ISA | None = None):
         default=False,
         help="Enable iHWP / iPF to operate parallel to cache lookup",
     )
+    parser.add_argument(
+        "--cxl-latency",
+        type=int,
+        default=0,
+        help="Interconnect/CXL round-trip latency in cycles (40, 120, 300, 450)",
+    )
     parser.add_argument("--checker", action="store_true")
     parser.add_argument(
         "--cpu-clock",

@@ -179,7 +179,7 @@ else:
     sys.exit(1)
 
 
-(CPUClass, test_mem_mode, FutureClass) = Simulation.setCPUClass(args)
+CPUClass, test_mem_mode, FutureClass = Simulation.setCPUClass(args)
 print("Abotaleb : " + str(CPUClass))
 print("test_mem_mode : " + str(test_mem_mode))
 print("FutureClass : " + str(FutureClass))
@@ -308,6 +308,19 @@ else:
     )  # Extend the LQEntries , SQEntries etc (Enables Good Benchmarking for MetaISA)
     system.membus = SystemXBar()
     system.system_port = system.membus.cpu_side_ports
+    if (
+        hasattr(args, "cxl_latency")
+        and args.cxl_latency
+        and args.cxl_latency > 0
+    ):
+        half_lat = max(1, args.cxl_latency // 2)
+        system.membus.frontend_latency = 2
+        system.membus.forward_latency = half_lat
+        system.membus.response_latency = half_lat
+        print(
+            "Configured CXL/interconnect round-trip latency: %d cycles (forward: %d, response: %d)"
+            % (args.cxl_latency, half_lat, half_lat)
+        )
     CacheConfig.config_cache(args, system)
     # print(system.cpu)
     MetaISAEngineConfig.config_meta_isa_engine(args, system)
