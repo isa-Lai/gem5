@@ -78,6 +78,16 @@ class L2Cache(Cache):
     write_buffers = 8
 
 
+class L3Cache(Cache):
+    assoc = 16
+    tag_latency = 44
+    data_latency = 44
+    response_latency = 21
+    mshrs = 20
+    tgts_per_mshr = 2
+    write_buffers = 64
+
+
 class IOCache(Cache):
     assoc = 8
     tag_latency = 50

@@ -112,7 +112,8 @@ namespace gem5
       /// If we tried to send a packet and it was blocked, store it here
       PacketPtr blockedPacket;
 
-      DcachePort(const std::string &name, RiscvMemoryStressor *owner) : RequestPort(name, owner), owner(owner), blockedPacket(nullptr)
+      DcachePort(const std::string &name, RiscvMemoryStressor *owner)
+          : RequestPort(name), owner(owner), blockedPacket(nullptr)
       {
       }
 

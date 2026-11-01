@@ -16,7 +16,7 @@ from m5.objects import ProbeListenerObject
 
 
 def config_meta_isa_engine(options, system):
-    if options.meta_isa_type == 'None':
+    if options.meta_isa_type == "None":
         return
 
     # v25.1 dropped TARGET_ISA from buildEnv; use the per-ISA compile flag.
@@ -126,11 +126,39 @@ def config_meta_isa_engine(options, system):
         system.metaISAEngine.llcSidePort = system.membus.mem_side_ports
 
         # Bind interstellar_nucleus of any InterStellarPrefetcher instances to system.metaISAEngine
-        if hasattr(system, 'l2') and system.l2 and hasattr(system.l2, 'prefetcher') and system.l2.prefetcher != NULL:
-            if system.l2.prefetcher.type == 'InterStellarPrefetcher':
-                system.l2.prefetcher.interstellar_nucleus = system.metaISAEngine
+        if (
+            hasattr(system, "l3")
+            and system.l3
+            and hasattr(system.l3, "prefetcher")
+            and system.l3.prefetcher != NULL
+        ):
+            if system.l3.prefetcher.type == "InterStellarPrefetcher":
+                system.l3.prefetcher.interstellar_nucleus = (
+                    system.metaISAEngine
+                )
+
+        if (
+            hasattr(system, "l2")
+            and system.l2
+            and hasattr(system.l2, "prefetcher")
+            and system.l2.prefetcher != NULL
+        ):
+            if system.l2.prefetcher.type == "InterStellarPrefetcher":
+                system.l2.prefetcher.interstellar_nucleus = (
+                    system.metaISAEngine
+                )
 
         for i in range(options.num_cpus):
-            if hasattr(system.cpu[i], 'dcache') and system.cpu[i].dcache and hasattr(system.cpu[i].dcache, 'prefetcher') and system.cpu[i].dcache.prefetcher != NULL:
-                if system.cpu[i].dcache.prefetcher.type == 'InterStellarPrefetcher':
-                    system.cpu[i].dcache.prefetcher.interstellar_nucleus = system.metaISAEngine
+            if (
+                hasattr(system.cpu[i], "dcache")
+                and system.cpu[i].dcache
+                and hasattr(system.cpu[i].dcache, "prefetcher")
+                and system.cpu[i].dcache.prefetcher != NULL
+            ):
+                if (
+                    system.cpu[i].dcache.prefetcher.type
+                    == "InterStellarPrefetcher"
+                ):
+                    system.cpu[i].dcache.prefetcher.interstellar_nucleus = (
+                        system.metaISAEngine
+                    )

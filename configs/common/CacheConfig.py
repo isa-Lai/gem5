@@ -110,10 +110,17 @@ def config_cache(options, system):
             None,
         )
     else:
-        dcache_class, icache_class, l2_cache_class, walk_cache_class = (
+        (
+            dcache_class,
+            icache_class,
+            l2_cache_class,
+            l3_cache_class,
+            walk_cache_class,
+        ) = (
             L1_DCache,
             L1_ICache,
             L2Cache,
+            L3Cache,
             None,
         )
 
@@ -137,7 +144,40 @@ def config_cache(options, system):
 
         system.tol2bus = L2XBar(clk_domain=system.cpu_clk_domain)
         system.l2.cpu_side = system.tol2bus.mem_side_ports
-        system.l2.mem_side = system.membus.cpu_side_ports
+
+        if options.l3cache:
+            system.l3 = l3_cache_class(
+                clk_domain=system.cpu_clk_domain,
+                **_get_cache_opts("l3", options),
+            )
+            if (
+                hasattr(options, "l3_pref_deg")
+                and options.l3_pref_deg is not None
+                and hasattr(system.l3, "prefetcher")
+                and system.l3.prefetcher
+            ):
+                system.l3.prefetcher.degree = options.l3_pref_deg
+            if (
+                hasattr(options, "l3_pref_queue_size")
+                and options.l3_pref_queue_size is not None
+                and hasattr(system.l3, "prefetcher")
+                and system.l3.prefetcher
+            ):
+                system.l3.prefetcher.queue_size = options.l3_pref_queue_size
+            if (
+                hasattr(options, "iHWP_work_parallel_to_Cache")
+                and options.iHWP_work_parallel_to_Cache
+                and hasattr(system.l3, "prefetcher")
+                and system.l3.prefetcher
+            ):
+                system.l3.prefetcher.iHWP_work_parallel_to_Cache = True
+
+            system.tol3bus = L2XBar(clk_domain=system.cpu_clk_domain)
+            system.l3.cpu_side = system.tol3bus.mem_side_ports
+            system.l2.mem_side = system.tol3bus.cpu_side_ports
+            system.l3.mem_side = system.membus.cpu_side_ports
+        else:
+            system.l2.mem_side = system.membus.cpu_side_ports
 
     if options.memchecker:
         system.memchecker = MemChecker()

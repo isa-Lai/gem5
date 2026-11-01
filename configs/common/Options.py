@@ -385,6 +385,33 @@ def addCommonOptions(parser, default_isa: ISA | None = None):
                         (if not set, use the default prefetcher of
                         the selected cache)""",
     )
+    parser.add_argument(
+        "--l3-hwp-type",
+        default=None,
+        choices=ObjectList.hwp_list.get_names(),
+        help="""
+        type of hardware prefetcher to use with the L3 cache.
+        (if not set, use the default prefetcher of
+        the selected cache)""",
+    )
+    parser.add_argument(
+        "--l3_pref_deg",
+        type=int,
+        default=None,
+        help="Degree of prefetching for L3 HWP",
+    )
+    parser.add_argument(
+        "--l3_pref_queue_size",
+        type=int,
+        default=None,
+        help="Queue size of prefetcher for L3 HWP",
+    )
+    parser.add_argument(
+        "--iHWP_work_parallel_to_Cache",
+        action="store_true",
+        default=False,
+        help="Enable iHWP / iPF to operate parallel to cache lookup",
+    )
     parser.add_argument("--checker", action="store_true")
     parser.add_argument(
         "--cpu-clock",
