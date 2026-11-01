@@ -33,7 +33,7 @@ BENCHMARKS = [
     },
 ]
 
-LATENCIES = [40, 120, 300]
+LATENCIES = [40, 120, 300, 450]
 
 
 def parse_stats(stats_path):
@@ -108,6 +108,8 @@ def main():
 
     results = []
 
+    force = "--force" in sys.argv
+
     for bench in BENCHMARKS:
         bname = bench["name"]
         bbin = bench["bin"]
@@ -118,74 +120,112 @@ def main():
             # 1. Run Baseline
             base_dir = os.path.join(M5OUT_BASE, f"{bname}_base_lat{lat}")
             os.makedirs(base_dir, exist_ok=True)
-            base_cmd = [
-                GEM5_OPT,
-                f"-d{base_dir}",
-                CONFIG_SE,
-                "--cpu-type=DerivO3CPU",
-                "--cpu-clock=2400MHz",
-                "--sys-clock=2400MHz",
-                "--caches",
-                "--l1d_size=64kB",
-                "--l1d_assoc=2",
-                "--l2cache",
-                "--l2_size=512kB",
-                "--l2_assoc=4",
-                "--l3cache",
-                "--l3_size=2MB",
-                "--l3_assoc=8",
-                "--mem-type=Ramulator",
-                "--ramulator-config=configs/ramulator/DDR4-config-Gen-noIPP.cfg",
-                f"--cxl-latency={lat}",
-                f"--cmd={bbin}",
-                f"--options={bopts}",
-                f"--maxinsts={bmaxinsts}",
-            ]
-            t0 = time.time()
-            ret_base = run_command(base_cmd, os.path.join(base_dir, "run.log"))
-            dur_base = time.time() - t0
-            stats_base = parse_stats(os.path.join(base_dir, "stats.txt"))
-            print(
-                f"[{bname} | Latency {lat} | Baseline] Return: {ret_base}, IPC: {stats_base['ipc']:.4f}, SimSec: {stats_base['simSeconds']:.6f} ({dur_base:.1f}s wall)"
-            )
+            stats_base_file = os.path.join(base_dir, "stats.txt")
+            if (
+                not force
+                and os.path.isfile(stats_base_file)
+                and os.path.getsize(stats_base_file) > 0
+            ):
+                stats_base = parse_stats(stats_base_file)
+                if stats_base["ipc"] > 0:
+                    print(
+                        f"[{bname} | Latency {lat} | Baseline] Cached stats: IPC: {stats_base['ipc']:.4f}, SimSec: {stats_base['simSeconds']:.6f}"
+                    )
+                else:
+                    stats_base = None
+            else:
+                stats_base = None
+
+            if stats_base is None:
+                base_cmd = [
+                    GEM5_OPT,
+                    f"-d{base_dir}",
+                    CONFIG_SE,
+                    "--cpu-type=DerivO3CPU",
+                    "--cpu-clock=2400MHz",
+                    "--sys-clock=2400MHz",
+                    "--caches",
+                    "--l1d_size=64kB",
+                    "--l1d_assoc=2",
+                    "--l2cache",
+                    "--l2_size=512kB",
+                    "--l2_assoc=4",
+                    "--l3cache",
+                    "--l3_size=2MB",
+                    "--l3_assoc=8",
+                    "--mem-type=Ramulator",
+                    "--ramulator-config=configs/ramulator/DDR4-config-Gen-noIPP.cfg",
+                    f"--cxl-latency={lat}",
+                    f"--cmd={bbin}",
+                    f"--options={bopts}",
+                    f"--maxinsts={bmaxinsts}",
+                ]
+                t0 = time.time()
+                ret_base = run_command(
+                    base_cmd, os.path.join(base_dir, "run.log")
+                )
+                dur_base = time.time() - t0
+                stats_base = parse_stats(os.path.join(base_dir, "stats.txt"))
+                print(
+                    f"[{bname} | Latency {lat} | Baseline] Return: {ret_base}, IPC: {stats_base['ipc']:.4f}, SimSec: {stats_base['simSeconds']:.6f} ({dur_base:.1f}s wall)"
+                )
 
             # 2. Run COMPASS v2
             compass_dir = os.path.join(M5OUT_BASE, f"{bname}_compass_lat{lat}")
             os.makedirs(compass_dir, exist_ok=True)
-            compass_cmd = [
-                GEM5_OPT,
-                f"-d{compass_dir}",
-                CONFIG_SE,
-                "--cpu-type=DerivO3CPU",
-                "--cpu-clock=2400MHz",
-                "--sys-clock=2400MHz",
-                "--caches",
-                "--l1d_size=64kB",
-                "--l1d_assoc=2",
-                "--l2cache",
-                "--l2_size=512kB",
-                "--l2_assoc=4",
-                "--l3cache",
-                "--l3_size=2MB",
-                "--l3_assoc=8",
-                "--mem-type=Ramulator",
-                "--ramulator-config=configs/ramulator/DDR4-config-Gen.cfg",
-                "--meta-isa-type=IPP",
-                "--l3-hwp-type=InterStellarPrefetcher",
-                f"--cxl-latency={lat}",
-                f"--cmd={bbin}",
-                f"--options={bopts}",
-                f"--maxinsts={bmaxinsts}",
-            ]
-            t0 = time.time()
-            ret_comp = run_command(
-                compass_cmd, os.path.join(compass_dir, "run.log")
-            )
-            dur_comp = time.time() - t0
-            stats_comp = parse_stats(os.path.join(compass_dir, "stats.txt"))
-            print(
-                f"[{bname} | Latency {lat} | COMPASS v2] Return: {ret_comp}, IPC: {stats_comp['ipc']:.4f}, pfIssued: {stats_comp['pfIssued']}, SimSec: {stats_comp['simSeconds']:.6f} ({dur_comp:.1f}s wall)"
-            )
+            stats_comp_file = os.path.join(compass_dir, "stats.txt")
+            if (
+                not force
+                and os.path.isfile(stats_comp_file)
+                and os.path.getsize(stats_comp_file) > 0
+            ):
+                stats_comp = parse_stats(stats_comp_file)
+                if stats_comp["ipc"] > 0:
+                    print(
+                        f"[{bname} | Latency {lat} | COMPASS v2] Cached stats: IPC: {stats_comp['ipc']:.4f}, pfIssued: {stats_comp['pfIssued']}, SimSec: {stats_comp['simSeconds']:.6f}"
+                    )
+                else:
+                    stats_comp = None
+            else:
+                stats_comp = None
+
+            if stats_comp is None:
+                compass_cmd = [
+                    GEM5_OPT,
+                    f"-d{compass_dir}",
+                    CONFIG_SE,
+                    "--cpu-type=DerivO3CPU",
+                    "--cpu-clock=2400MHz",
+                    "--sys-clock=2400MHz",
+                    "--caches",
+                    "--l1d_size=64kB",
+                    "--l1d_assoc=2",
+                    "--l2cache",
+                    "--l2_size=512kB",
+                    "--l2_assoc=4",
+                    "--l3cache",
+                    "--l3_size=2MB",
+                    "--l3_assoc=8",
+                    "--mem-type=Ramulator",
+                    "--ramulator-config=configs/ramulator/DDR4-config-Gen.cfg",
+                    "--meta-isa-type=IPP",
+                    "--l3-hwp-type=InterStellarPrefetcher",
+                    f"--cxl-latency={lat}",
+                    f"--cmd={bbin}",
+                    f"--options={bopts}",
+                    f"--maxinsts={bmaxinsts}",
+                ]
+                t0 = time.time()
+                ret_comp = run_command(
+                    compass_cmd, os.path.join(compass_dir, "run.log")
+                )
+                dur_comp = time.time() - t0
+                stats_comp = parse_stats(
+                    os.path.join(compass_dir, "stats.txt")
+                )
+                print(
+                    f"[{bname} | Latency {lat} | COMPASS v2] Return: {ret_comp}, IPC: {stats_comp['ipc']:.4f}, pfIssued: {stats_comp['pfIssued']}, SimSec: {stats_comp['simSeconds']:.6f} ({dur_comp:.1f}s wall)"
+                )
 
             speedup = (
                 (stats_comp["ipc"] / stats_base["ipc"])
