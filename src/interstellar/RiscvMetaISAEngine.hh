@@ -74,13 +74,14 @@ namespace gem5
 			   verbatim. */
 			void         resolveLinkBase  (MISA_Desc_t &desc, int crntDriver, int streamID);
 
-			DescTable       descTable   	                ;
-			uint64_t        tempCSR[MAX_PROCESSORS]         ;
-			/* InterStellar: resolved Link-descriptor bases per driver.
-			   Key = Link GlobalID, value = base address the CPU snapshotted
-			   from the integer register file at Link L-word CSR-write time
-			   (see ISA::writeCSR). */
-			std::unordered_map<int, Addr> linkBase[MAX_PROCESSORS];
+    DescTable descTable;
+    uint32_t prepK;
+    uint64_t tempCSR[MAX_PROCESSORS];
+    /* InterStellar: resolved Link-descriptor bases per driver.
+       Key = Link GlobalID, value = base address the CPU snapshotted
+       from integer register file at Link L-word CSR-write time
+       (see ISA::writeCSR). */
+    std::unordered_map<int, Addr> linkBase[MAX_PROCESSORS];
             uint64_t        loopStartAddress; /* offset + PC when MetaISA CSR of loop changed */
 
             bool loopInstrCommitted[MAX_LOOP_DESC_NUM];
@@ -99,10 +100,22 @@ namespace gem5
 
 		public:
 			RiscvMetaISAEngine(const RiscvMetaISAEngineParams &p);
-			void   startup()					override;
-	     	void   regProbeListeners() 		    override;
-			void   processCSRWT          (const gem5::RiscvISA::MetaIsaCsrDataPtr & metaIsaCsrData);
-			void   processVA2PAOptimized (const gem5::RequestPtr& pkt    			);
+                        void
+                        setPrepK(uint32_t k)
+                        {
+                            prepK = k;
+                            descTable.setPrepK(k);
+                        }
+                        uint32_t
+                        getPrepK() const
+                        {
+                            return prepK;
+                        }
+                        void startup() override;
+                        void regProbeListeners() override;
+    void processCSRWT(
+        const gem5::RiscvISA::MetaIsaCsrDataPtr &metaIsaCsrData);
+    void processVA2PAOptimized(const gem5::RequestPtr &pkt);
 		void   processCacheAccess  (gem5::CacheAccessProbeArg const &cache_access);
 			bool   interstellarFilterPkt(PacketPtr pkt)	                    override ;
 

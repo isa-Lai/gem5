@@ -424,6 +424,34 @@ def addCommonOptions(parser, default_isa: ISA | None = None):
         default=0,
         help="Interconnect/CXL round-trip latency in cycles (40, 120, 300, 450)",
     )
+    parser.add_argument(
+        "--meta-isa-prep-k",
+        type=int,
+        default=1,
+        choices=[1, 2, 4],
+        help="Stage 1 Preparation Horizon K segments",
+    )
+    parser.add_argument(
+        "--meta-isa-interval-w",
+        type=int,
+        default=16,
+        choices=[8, 16, 32, 64],
+        help="Stage 2 Interval Delivery Window W_del",
+    )
+    parser.add_argument(
+        "--meta-isa-credits",
+        type=int,
+        default=16,
+        choices=[8, 16, 32, 64],
+        help="Stage 2 Transport Credits C",
+    )
+    parser.add_argument(
+        "--meta-isa-cell",
+        type=str,
+        default="A",
+        choices=["A", "B", "C", "D"],
+        help="COMPASS v2 2x2 Factorial Cell (A, B, C, D)",
+    )
     parser.add_argument("--checker", action="store_true")
     parser.add_argument(
         "--cpu-clock",

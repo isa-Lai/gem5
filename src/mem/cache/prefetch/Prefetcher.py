@@ -804,12 +804,22 @@ class InterStellarPrefetcher(QueuedPrefetcher):
     type = "InterStellarPrefetcher"
     cxx_class = "gem5::prefetch::InterStellar"
     cxx_header = "interstellar/prefetcher/interstellar.hh"
-    iHWP_data_latency           = Param.Cycles(2, "Data access latency to iHWP")
-    iHWP_work_parallel_to_Cache = Param.Bool(True, "iHWP Works Parallel to Cache?")
-    # interstellar prefetcher needs to consult interstellar engine 
-    interstellar_nucleus = Param.BaseInterstellarEngine(NULL, "Interstellar engine attached to the prefetcher")
+    iHWP_data_latency = Param.Cycles(2, "Data access latency to iHWP")
+    iHWP_work_parallel_to_Cache = Param.Bool(
+        True, "iHWP Works Parallel to Cache?"
+    )
+    # interstellar prefetcher needs to consult interstellar engine
+    interstellar_nucleus = Param.BaseInterstellarEngine(
+        NULL, "Interstellar engine attached to the prefetcher"
+    )
     # Do not consult interstellar prefetcher on instruction accesses
     on_inst = False
+
+    intervalW = Param.Unsigned(
+        16, "Interval delivery window W_del (8, 16, 32, 64)"
+    )
+    credits = Param.Unsigned(16, "Transport credits C (8, 16, 32, 64)")
+    cellMode = Param.String("A", "COMPASS v2 Cell Mode (A, B, C, or D)")
 
     confidence_counter_bits = Param.Unsigned(
         3, "Number of bits of the confidence counter"
@@ -850,4 +860,3 @@ class InterStellarPrefetcher(QueuedPrefetcher):
     table_replacement_policy = Param.BaseReplacementPolicy(
         RandomRP(), "Replacement policy of the PC table"
     )
-

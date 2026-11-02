@@ -113,6 +113,7 @@ private:
     int               tbl2EntriesNum               ;
     int               tbl2EntNum[MAX_PROCESSORS]   ;
     int               lastIDPerProcesser[MAX_PROCESSORS]      ;
+    uint32_t prepK; // Stage 1 Preparation Horizon K
     uint32_t getTbl1Len()               { return tbl1EntriesNum; }
     uint32_t getTbl1Len(uint32_t p)          { return tbl1EntNum[p]; }
     uint32_t getTbl2Len()               { return tbl2EntriesNum; }
@@ -133,6 +134,16 @@ private:
     }
 public:
     DescTable();
+    void
+    setPrepK(uint32_t k)
+    {
+        prepK = k;
+    }
+    uint32_t
+    getPrepK() const
+    {
+        return prepK;
+    }
 
     /******************************************************************/
     /************** Common Functions to all descriptors ***************/

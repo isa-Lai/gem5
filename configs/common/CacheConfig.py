@@ -172,6 +172,27 @@ def config_cache(options, system):
             ):
                 system.l3.prefetcher.queue_size = options.l3_pref_queue_size
             if (
+                hasattr(options, "meta_isa_interval_w")
+                and options.meta_isa_interval_w is not None
+                and hasattr(system.l3, "prefetcher")
+                and system.l3.prefetcher
+            ):
+                system.l3.prefetcher.intervalW = options.meta_isa_interval_w
+            if (
+                hasattr(options, "meta_isa_credits")
+                and options.meta_isa_credits is not None
+                and hasattr(system.l3, "prefetcher")
+                and system.l3.prefetcher
+            ):
+                system.l3.prefetcher.credits = options.meta_isa_credits
+            if (
+                hasattr(options, "meta_isa_cell")
+                and options.meta_isa_cell is not None
+                and hasattr(system.l3, "prefetcher")
+                and system.l3.prefetcher
+            ):
+                system.l3.prefetcher.cellMode = options.meta_isa_cell
+            if (
                 hasattr(options, "iHWP_work_parallel_to_Cache")
                 and options.iHWP_work_parallel_to_Cache
                 and hasattr(system.l3, "prefetcher")

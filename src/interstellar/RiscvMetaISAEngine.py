@@ -28,6 +28,7 @@ class RiscvMetaISAEngine(BaseInterstellarEngine):
     BPQSize = Param.UInt16(
         8192, "Blocked Packet Queue Size with Default Value = 8192"
     )
+    prepK = Param.UInt32(1, "Stage 1 Preparation Horizon K segments (1, 2, 4)")
 
     stressors_probe_listerners_list = VectorParam.ProbeListenerObject(
         "listeners per each Stressor"

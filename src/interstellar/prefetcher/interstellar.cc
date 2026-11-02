@@ -39,25 +39,40 @@
  }
 
  InterStellar::InterStellar(const InterStellarPrefetcherParams &p)
-   : Queued(p),
-     iHWP_data_latency(p.iHWP_data_latency),
-     iHWP_work_parallel_to_Cache(p.iHWP_work_parallel_to_Cache),
-     interstellar_nucleus(p.interstellar_nucleus),
-     initConfidence(p.confidence_counter_bits, p.initial_confidence),
-     threshConf(p.confidence_threshold/100.0),
-     useRequestorId(p.use_requestor_id),
-     degree(p.degree),
-     distance(p.distance),
-     pcTableInfo(p.table_assoc, p.table_entries, p.table_indexing_policy,
-                 p.table_replacement_policy),
-     stats_ihwp(this),
-     useCachelineAddr(p.use_cache_line_address)
+     : Queued(p),
+       iHWP_data_latency(p.iHWP_data_latency),
+       iHWP_work_parallel_to_Cache(p.iHWP_work_parallel_to_Cache),
+       interstellar_nucleus(p.interstellar_nucleus),
+       initConfidence(p.confidence_counter_bits, p.initial_confidence),
+       threshConf(p.confidence_threshold / 100.0),
+       useRequestorId(p.use_requestor_id),
+       degree(p.degree),
+       distance(p.distance),
+       pcTableInfo(p.table_assoc, p.table_entries, p.table_indexing_policy,
+                   p.table_replacement_policy),
+       stats_ihwp(this),
+       useCachelineAddr(p.use_cache_line_address),
+       intervalW(p.intervalW),
+       initCredits(p.credits),
+       cellModeStr(p.cellMode),
+       cellMode(p.cellMode.empty() ? 'A' : p.cellMode[0])
  {
     iDirStreamBuffer       = new IDirStreamBuffer();
     iPrefetcherCacheBuffer = new gem5::prefetch::circBuffer<gem5::prefetch::IpreftecherQueueKey, gem5::prefetch::IpreftecherQueueEntry>();
     iPrefetcherCacheBuffer->setCircBufferSize( queueSize   );
-    //printf("iHWP Configs: ihwp_data_latency = %d , is Parallel to Cache = %d \n",idata_latency, iHWP_work_parallel_to_Cache);
-    cout<<"iHWP Configs: ihwp_data_latency ="<<iHWP_data_latency<<", is Parallel to Cache = "<<iHWP_work_parallel_to_Cache<<endl;
+
+    sTotal = queueSize > 0 ? queueSize : 64;
+    sFree = sTotal;
+    sReserved = 0;
+    sResident = 0;
+    creditsTotal = initCredits > 0 ? initCredits : 16;
+    creditsAvailable = creditsTotal;
+    assert(sFree + sReserved + sResident == sTotal);
+
+    cout << "iHWP Configs: ihwp_data_latency =" << iHWP_data_latency
+         << ", is Parallel to Cache = " << iHWP_work_parallel_to_Cache
+         << ", cellMode=" << cellMode << ", intervalW=" << intervalW
+         << ", credits=" << creditsTotal << endl;
  }
  Cycles  InterStellar::get_iHWP_data_latency()
  {
@@ -166,30 +181,91 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
         Addr preftchedAddress,baseAddr = pkt->getAddr();
         int pref_cnt = 0;
         int lookahead = (distance > 0) ? distance : 4;
-        for (int pref_ind = 1; pref_ind < N + 1; pref_ind++) {
-            // Don't generate iHWP if it is full
-            if (iPrefetcherCacheBuffer->IsFull()) {
-                stats_ihwp.tot_iHWP_full++;
-                break;
+
+        if (cellMode == 'B' || cellMode == 'D') {
+            // Stage 2: Bounded Interval Delivery & Credits
+            IntervalDescriptor &interval = intervalTable[iDirStreamTableKey];
+            if (interval.startAddr == 0 ||
+                baseAddr >=
+                    interval.startAddr + interval.windowSize * iPrefetchStep) {
+                interval.startAddr = baseAddr;
+                interval.windowSize = intervalW;
+                interval.authorisedBitmap = 0;
+                interval.completedBitmap = 0;
+                interval.residentBitmap = 0;
+                interval.demandWaitBitmap = 0;
             }
 
-            preftchedAddress =
-                baseAddr + (lookahead + pref_ind - 1) * iPrefetchStep;
-            IpreftecherQueueKey iPrefetcherQkey(preftchedAddress, streamID,
-                                                requestorID);
+            int winLimit =
+                (interval.windowSize < 64) ? interval.windowSize : 64;
+            for (int i = 0; i < winLimit; i++) {
+                if (!(interval.authorisedBitmap & (1ULL << i))) {
+                    if (creditsAvailable == 0 || sFree == 0) {
+                        break;
+                    }
+                    if (iPrefetcherCacheBuffer->IsFull()) {
+                        stats_ihwp.tot_iHWP_full++;
+                        break;
+                    }
 
-            if (!iPrefetcherCacheBuffer->find(iPrefetcherQkey)) {
-                addresses.push_back(AddrPriority(preftchedAddress, 0));
-                IPreftecherQueueEntry iPreftchQEnt;
-                iPreftchQEnt.W = 1  ; // Waiting for data
-                iPreftchQEnt.R = 0  ; // Not Requested Yet
-                ++stats_ihwp.tot_req_iPrefteched  ; // Total interstellar HWP in cache prefetches
-                iPrefetcherCacheBuffer->Push(std::make_pair(iPrefetcherQkey, iPreftchQEnt));
-                pref_cnt++;
+                    preftchedAddress =
+                        interval.startAddr + (lookahead + i) * iPrefetchStep;
+                    IpreftecherQueueKey iPrefetcherQkey(preftchedAddress,
+                                                        streamID, requestorID);
+
+                    interval.authorisedBitmap |= (1ULL << i);
+                    creditsAvailable--;
+                    sFree--;
+                    sReserved++;
+                    assert(sFree + sReserved + sResident == sTotal);
+
+                    if (!iPrefetcherCacheBuffer->find(iPrefetcherQkey)) {
+                        addresses.push_back(AddrPriority(preftchedAddress, 0));
+                        IPreftecherQueueEntry iPreftchQEnt;
+                        iPreftchQEnt.W = 1;
+                        iPreftchQEnt.R = 0;
+                        ++stats_ihwp.tot_req_iPrefteched;
+                        iPrefetcherCacheBuffer->Push(
+                            std::make_pair(iPrefetcherQkey, iPreftchQEnt));
+                        pref_cnt++;
+                    }
+                }
             }
+            DPRINTF(HWPrefetch,
+                    "[IntervalDeliv Cell %c] %d entries authorised "
+                    "(credits=%d, sRes=%d, sFree=%d)\n",
+                    cellMode, pref_cnt, creditsAvailable, sReserved, sFree);
+        } else {
+            // Stage 1 / Cell A or C: Line pulls
+            for (int pref_ind = 1; pref_ind < N + 1; pref_ind++) {
+                // Don't generate iHWP if it is full
+                if (iPrefetcherCacheBuffer->IsFull()) {
+                    stats_ihwp.tot_iHWP_full++;
+                    break;
+                }
+
+                preftchedAddress =
+                    baseAddr + (lookahead + pref_ind - 1) * iPrefetchStep;
+                IpreftecherQueueKey iPrefetcherQkey(preftchedAddress, streamID,
+                                                    requestorID);
+
+                if (!iPrefetcherCacheBuffer->find(iPrefetcherQkey)) {
+                    addresses.push_back(AddrPriority(preftchedAddress, 0));
+                    IPreftecherQueueEntry iPreftchQEnt;
+                    iPreftchQEnt.W = 1;               // Waiting for data
+                    iPreftchQEnt.R = 0;               // Not Requested Yet
+                    ++stats_ihwp.tot_req_iPrefteched; // Total interstellar HWP
+                                                      // in cache prefetches
+                    iPrefetcherCacheBuffer->Push(
+                        std::make_pair(iPrefetcherQkey, iPreftchQEnt));
+                    pref_cnt++;
+                }
+            }
+            DPRINTF(HWPrefetch,
+                    "%d iHWP request entries are added to iHWP Buffer for "
+                    "addr 0x%lx [Step=%d]\n",
+                    pref_cnt, baseAddr, iPrefetchStep);
         }
-        DPRINTF(HWPrefetch, "%d iHWP request entries are added to iHWP Buffer for addr 0x%lx [Step=%d]\n",pref_cnt,baseAddr,iPrefetchStep);
-
       }
       return true;
  }
@@ -222,11 +298,57 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
             // printf( "\n");
             // Mark entry as is not waiting for data
             (*this->iPrefetcherCacheBuffer)[iPrefetcherQkey].W=0;
+
+            if (cellMode == 'B' || cellMode == 'D') {
+                uint64_t iDirStreamTableKey =
+                    (((uint64_t)streamID << METAISA_REQID_BITS) + requestorID);
+                auto it = intervalTable.find(iDirStreamTableKey);
+                if (it != intervalTable.end()) {
+                    IntervalDescriptor &interval = it->second;
+                    int streamStride = pkt->getMetaISAStride();
+                    int iPrefetchStep = streamStride;
+                    if (iPrefetchStep > 0) {
+                        while (iPrefetchStep < blkSize) {
+                            iPrefetchStep += streamStride;
+                        }
+                    }
+                    if (iPrefetchStep > 0 && pktAddr >= interval.startAddr) {
+                        int offset =
+                            (pktAddr - interval.startAddr) / iPrefetchStep;
+                        if (offset >= 0 && offset < 64) {
+                            interval.completedBitmap |= (1ULL << offset);
+                            interval.residentBitmap |= (1ULL << offset);
+                        }
+                    }
+                }
+                if (sReserved > 0) {
+                    sReserved--;
+                    sResident++;
+                    assert(sFree + sReserved + sResident == sTotal);
+                }
+                if (creditsAvailable < creditsTotal) {
+                    creditsAvailable++;
+                }
+            }
+
             // Check if the entry is requested
             if((*this->iPrefetcherCacheBuffer)[iPrefetcherQkey].R==1)
             {
                 (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
-                DPRINTF(HWPrefetch,"Demand Request (coleased in MSHR before) Hit in iHWP Buffer: Delete entry from iHWP (A:%x), Len =(%d/%d)\n",pktAddr,(*this->iPrefetcherCacheBuffer).getLength(),(*this->iPrefetcherCacheBuffer).getMaxSize() );
+                if (cellMode == 'B' || cellMode == 'D') {
+                    if (sResident > 0) {
+                        sResident--;
+                        sFree++;
+                        assert(sFree + sReserved + sResident == sTotal);
+                    }
+                }
+                DPRINTF(HWPrefetch,
+                        "Demand Request (coleased in MSHR before) Hit in "
+                        "iHWP Buffer: Delete entry from iHWP (A:%x), "
+                        "Len =(%d/%d)
+",
+                        pktAddr, (*this->iPrefetcherCacheBuffer).getLength(),
+                        (*this->iPrefetcherCacheBuffer).getMaxSize());
             }
             else
               DPRINTF(HWPrefetch, "iHWP response for addr %#x stored in internal buffer\n",pkt->getAddr());
@@ -296,6 +418,13 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
             // for(int i =0 ;i<blkSize;i++)
             //   iHWP_CacheBlk->data[i]=(*this->iPrefetcherCacheBuffer)[iPrefetcherQkey].cacheBlk->data[i];
             (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
+            if (cellMode == 'B' || cellMode == 'D') {
+                if (sResident > 0) {
+                    sResident--;
+                    sFree++;
+                    assert(sFree + sReserved + sResident == sTotal);
+                }
+            }
             iHWP_CacheBlk = tmpblk.release();
 
             //pkt->setData(iHWP_CacheBlk->data);
@@ -350,7 +479,23 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
     if (iPrefetcherCacheBuffer->find(iPrefetcherQkey))
     {
       (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
-      DPRINTF(HWPrefetch,"HWP (A:%x) is squashed as demand request comes before generating it ! iHWP[%d/%d]\n",reqAddress,(*this->iPrefetcherCacheBuffer).getLength(),(*this->iPrefetcherCacheBuffer).getMaxSize() );
+      if (cellMode == 'B' || cellMode == 'D') {
+          if (sResident > 0) {
+              sResident--;
+              sFree++;
+              assert(sFree + sReserved + sResident == sTotal);
+          } else if (sReserved > 0) {
+              sReserved--;
+              sFree++;
+              assert(sFree + sReserved + sResident == sTotal);
+          }
+      }
+      DPRINTF(HWPrefetch,
+              "HWP (A:%x) is squashed as demand request comes before "
+              "generating it ! iHWP[%d/%d]
+",
+              reqAddress, (*this->iPrefetcherCacheBuffer).getLength(),
+              (*this->iPrefetcherCacheBuffer).getMaxSize());
       return true;
     }
     else
@@ -369,7 +514,23 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
       if (iPrefetcherCacheBuffer->find(iPrefetcherQkey))
       {
         (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
-        DPRINTF(HWPrefetch,"HWP (A:%x) is deleted (InValidation Comes!) ! iHWP[%d/%d]\n",reqAddress,(*this->iPrefetcherCacheBuffer).getLength(),(*this->iPrefetcherCacheBuffer).getMaxSize() );
+        if (cellMode == 'B' || cellMode == 'D') {
+            if (sResident > 0) {
+                sResident--;
+                sFree++;
+                assert(sFree + sReserved + sResident == sTotal);
+            } else if (sReserved > 0) {
+                sReserved--;
+                sFree++;
+                assert(sFree + sReserved + sResident == sTotal);
+            }
+        }
+        DPRINTF(HWPrefetch,
+                "HWP (A:%x) is deleted (InValidation Comes!) ! "
+                "iHWP[%d/%d]
+",
+                reqAddress, (*this->iPrefetcherCacheBuffer).getLength(),
+                (*this->iPrefetcherCacheBuffer).getMaxSize());
         int idx_per_stream_per_core  = MAX_STREAMS * pkt->getMetaISARequestorID() + pkt->getMetaISAStreamID();
         prefetchStats.pfInvalidationDeleteiHWPPerStreamPerCore[idx_per_stream_per_core]++;
         return true;

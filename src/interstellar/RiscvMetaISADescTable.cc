@@ -22,8 +22,8 @@ DescTable::DescTable()
     /* Upon recive the reset signal in hw , both registers should be zero */
     this->tbl1EntriesNum = 0;
     this->tbl2EntriesNum = 0;
-    for(int i = 0 ; i<MAX_PROCESSORS ;i++)
-    {
+    this->prepK = 1;
+    for (int i = 0; i < MAX_PROCESSORS; i++) {
         this->tbl1EntNum[i] = 0;
         this->tbl2EntNum[i] = 0;
         this->lastIDPerProcesser[i] = -1 ;

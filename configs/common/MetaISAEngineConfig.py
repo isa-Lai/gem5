@@ -101,11 +101,19 @@ def config_meta_isa_engine(options, system):
         if hasattr(system, "l2"):
             systemL2 = system.l2
 
+        prep_k = 1
+        if (
+            hasattr(options, "meta_isa_prep_k")
+            and options.meta_isa_prep_k is not None
+        ):
+            prep_k = options.meta_isa_prep_k
+
         system.metaISAEngine = RiscvMetaISAEngine(
             clk_domain=system.cpu_clk_domain,
             optimization_policy=options.meta_isa_type,
             cpu_type=options.cpu_type,
             interstellar_probe_enable=options.meta_isa_probe_enable,
+            prepK=prep_k,
             # Pointer to simObjects needed inside MetaISA
             isa_list=isa_vec,
             cpu_list=cpuList,

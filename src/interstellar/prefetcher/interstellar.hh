@@ -156,6 +156,41 @@
      IDirStreamBuffer * iDirStreamBuffer;
      gem5::prefetch::circBuffer  < gem5::prefetch::IpreftecherQueueKey, gem5::prefetch::IpreftecherQueueEntry> * iPrefetcherCacheBuffer  ;
 
+     /* COMPASS v2 Stage 2: Interval Delivery & Credit State */
+     struct IntervalDescriptor
+     {
+         Addr startAddr;
+         uint32_t windowSize; // W_del (8, 16, 32, 64)
+         uint64_t authorisedBitmap;
+         uint64_t completedBitmap;
+         uint64_t residentBitmap;
+         uint64_t demandWaitBitmap;
+
+         IntervalDescriptor()
+             : startAddr(0),
+               windowSize(16),
+               authorisedBitmap(0),
+               completedBitmap(0),
+               residentBitmap(0),
+               demandWaitBitmap(0)
+         {}
+     };
+
+     std::unordered_map<uint64_t, IntervalDescriptor> intervalTable;
+
+     uint32_t sTotal;
+     uint32_t sFree;
+     uint32_t sReserved;
+     uint32_t sResident;
+
+     uint32_t creditsTotal;
+     uint32_t creditsAvailable;
+
+     const uint32_t intervalW;
+     const uint32_t initCredits;
+     const std::string cellModeStr;
+     char cellMode;
+
    public:
      InterStellar(const InterStellarPrefetcherParams &p);
 

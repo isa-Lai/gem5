@@ -180,4 +180,24 @@ typedef struct  __attribute__((__packed__)){
 // 0000001100000000  00000000 00000000 00000000 00000000 00000000 00000000 00000010 00000000 00000000 000001001
 //
 
+/**********************************************************************
+ ********  COMPASS v2 Stage 1 & Stage 2 Stream Structures    **********
+ **********************************************************************/
+typedef struct
+{
+    uint32_t prepK;             // K-segment preparation horizon: 1, 2, 4
+    uint32_t prepared_segments; // Count of prepared segments ahead
+    uint64_t prep_frontier;     // Current preparation frontier address
+} DIR_Stream_t;
+
+typedef struct
+{
+    uint64_t startAddr;        // Base address of the interval window
+    uint32_t windowSize;       // W_del (8, 16, 32, 64)
+    uint64_t authorisedBitmap; // Lines authorised for transport
+    uint64_t completedBitmap;  // Lines completed at controller
+    uint64_t residentBitmap;   // Lines resident in iPF Buffer
+    uint64_t demandWaitBitmap; // Lines currently waited on by demand
+} MISA_IntervalDescriptor_t;
+
 #endif

@@ -51,123 +51,121 @@ namespace gem5
     			statistics::Group::regStats();
 
 		}
-		RiscvMetaISAEngine::RiscvMetaISAEngine(const RiscvMetaISAEngineParams &p)
-			: BaseInterstellarEngine(p),
-  		   stats(*this)
-		{
-			// if(cpu_type == O3)
-			//     cpu_vec=reinterpret_cast<CPU*>(p.cpu_list)
-			totL1misses = new int[cpu_vec.size()];
-			for (size_t i = 0; i < cpu_vec.size(); i++)
-				totL1misses[i] = 0;
-			for (size_t i = 0; i < MAX_LOOP_DESC_NUM; i++)
-				loopInstrCommitted[i] = true; /* Initally unlock this guerd to incremese the iteration# once loop instruction is to be committed */
-			/* Initalize the blocked queue maximum size and actual length */
-			maxBPQsize = p.BPQSize;
-			crntBPQLen =          0 ;
-			stressors_list = p.stressors_list;
-			stressors_probe_listerners_list = p.stressors_probe_listerners_list;
+                RiscvMetaISAEngine::RiscvMetaISAEngine(
+                    const RiscvMetaISAEngineParams &p)
+                    : BaseInterstellarEngine(p), stats(*this), prepK(p.prepK)
+                {
+                    descTable.setPrepK(prepK);
+                    // if (cpu_type == O3)
+                    //     cpu_vec=reinterpret_cast<CPU*>(p.cpu_list)
+                    totL1misses = new int[cpu_vec.size()];
+                    for (size_t i = 0; i < cpu_vec.size(); i++) {
+                        totL1misses[i] = 0;
+                    }
+                    for (size_t i = 0; i < MAX_LOOP_DESC_NUM; i++) {
+                        loopInstrCommitted[i] =
+                            true; /* Initally unlock this guerd to incremese
+                                     the iteration# once loop instruction is to
+                                     be committed */
+                    }
+                    /* Initalize the blocked queue maximum size and actual
+                     * length */
+                    maxBPQsize = p.BPQSize;
+                    crntBPQLen = 0;
+                    stressors_list = p.stressors_list;
+                    stressors_probe_listerners_list =
+                        p.stressors_probe_listerners_list;
 
+                    /**** Pointer Chasing ***/
+                    this->numRemPtrStreams = 0;
 
-			/**** Pointer Chasing ***/
-			this->numRemPtrStreams = 0;
+                    DPRINTF(
+                        Interstellar_IPP,
+                        "RISCV MetaISA Centralized Object Is Initialized!\n");
 
-			DPRINTF(Interstellar_IPP, "RISCV MetaISA Centralized Object Is Initialized!\n");
+                    //[Abotaleb] Hardwire TLBInverse
+                    if (cpu_vec.size() == 1) {
+                        this->tlb_inverse.insert({2, 1});
+                        DPRINTF(Interstellar_IPP, "cpu_vec length = 1 \n");
+                    }
+                    if (cpu_vec.size() == 4) {
+                        this->tlb_inverse.insert({8, 1});
+                        this->tlb_inverse.insert({9, 1});
+                        this->tlb_inverse.insert({10, 1});
+                        this->tlb_inverse.insert({11, 1});
+                        DPRINTF(Interstellar_IPP, "cpu_vec length= 4 \n");
+                    }
+                    if (cpu_vec.size() == 8) {
+                        this->tlb_inverse.insert({0x10, 1});
+                        this->tlb_inverse.insert({0x11, 1});
+                        this->tlb_inverse.insert({0x12, 1});
+                        this->tlb_inverse.insert({0x13, 1});
+                        this->tlb_inverse.insert({0x14, 1});
+                        this->tlb_inverse.insert({0x15, 1});
+                        this->tlb_inverse.insert({0x16, 1});
+                        this->tlb_inverse.insert({0x17, 1});
+                        DPRINTF(Interstellar_IPP, "cpu_vec length= 8 \n");
+                    }
+                    if (cpu_vec.size() == 16) {
+                        this->tlb_inverse.insert({0x20, 1});
+                        this->tlb_inverse.insert({0x21, 1});
+                        this->tlb_inverse.insert({0x22, 1});
+                        this->tlb_inverse.insert({0x23, 1});
+                        this->tlb_inverse.insert({0x24, 1});
+                        this->tlb_inverse.insert({0x25, 1});
+                        this->tlb_inverse.insert({0x26, 1});
+                        this->tlb_inverse.insert({0x27, 1});
+                        this->tlb_inverse.insert({0x28, 1});
+                        this->tlb_inverse.insert({0x29, 1});
+                        this->tlb_inverse.insert({0x2a, 1});
+                        this->tlb_inverse.insert({0x2b, 1});
+                        this->tlb_inverse.insert({0x2c, 1});
+                        this->tlb_inverse.insert({0x2d, 1});
+                        this->tlb_inverse.insert({0x2e, 1});
+                        this->tlb_inverse.insert({0x2f, 1});
+                        DPRINTF(Interstellar_IPP, "cpu_vec length= 16 \n");
+                    }
+                    if (cpu_vec.size() == 32) {
+                        this->tlb_inverse.insert({0x40, 1});
+                        this->tlb_inverse.insert({0x41, 1});
+                        this->tlb_inverse.insert({0x42, 1});
+                        this->tlb_inverse.insert({0x43, 1});
+                        this->tlb_inverse.insert({0x44, 1});
+                        this->tlb_inverse.insert({0x45, 1});
+                        this->tlb_inverse.insert({0x46, 1});
+                        this->tlb_inverse.insert({0x47, 1});
+                        this->tlb_inverse.insert({0x48, 1});
+                        this->tlb_inverse.insert({0x49, 1});
+                        this->tlb_inverse.insert({0x4a, 1});
+                        this->tlb_inverse.insert({0x4b, 1});
+                        this->tlb_inverse.insert({0x4c, 1});
+                        this->tlb_inverse.insert({0x4d, 1});
+                        this->tlb_inverse.insert({0x4e, 1});
+                        this->tlb_inverse.insert({0x4f, 1});
+                        this->tlb_inverse.insert({0x50, 1});
+                        this->tlb_inverse.insert({0x51, 1});
+                        this->tlb_inverse.insert({0x52, 1});
+                        this->tlb_inverse.insert({0x53, 1});
+                        this->tlb_inverse.insert({0x54, 1});
+                        this->tlb_inverse.insert({0x55, 1});
+                        this->tlb_inverse.insert({0x56, 1});
+                        this->tlb_inverse.insert({0x57, 1});
+                        this->tlb_inverse.insert({0x58, 1});
+                        this->tlb_inverse.insert({0x59, 1});
+                        this->tlb_inverse.insert({0x5a, 1});
+                        this->tlb_inverse.insert({0x5b, 1});
+                        this->tlb_inverse.insert({0x5c, 1});
+                        this->tlb_inverse.insert({0x5d, 1});
+                        this->tlb_inverse.insert({0x5e, 1});
+                        this->tlb_inverse.insert({0x5f, 1});
+                        DPRINTF(Interstellar_IPP, "cpu_vec length= 32 \n");
+                    }
+                    DPRINTF(Interstellar_IPP,
+                            "RISCV TLBInverse Is Initialized!\n");
+                }
 
-			//[Abotaleb] Hardwire TLBInverse
-			if(cpu_vec.size()==1)
-			{
-				this->tlb_inverse.insert({2,1});
-				DPRINTF(Interstellar_IPP, "cpu_vec length = 1 \n");
-			}
-			if(cpu_vec.size()==4)
-			{
-			  this->tlb_inverse.insert({8,1});
-			  this->tlb_inverse.insert({9,1});
-			  this->tlb_inverse.insert({10,1});
-			  this->tlb_inverse.insert({11,1});
-				DPRINTF(Interstellar_IPP, "cpu_vec length= 4 \n");
-
-			}
-			if(cpu_vec.size()==8)
-			{
-			  this->tlb_inverse.insert({0x10,1});
-			  this->tlb_inverse.insert({0x11,1});
-			  this->tlb_inverse.insert({0x12,1});
-			  this->tlb_inverse.insert({0x13,1});
-			  this->tlb_inverse.insert({0x14,1});
-			  this->tlb_inverse.insert({0x15,1});
-			  this->tlb_inverse.insert({0x16,1});
-			  this->tlb_inverse.insert({0x17,1});
-			  DPRINTF(Interstellar_IPP, "cpu_vec length= 8 \n");
-
-			}
-			if(cpu_vec.size()==16)
-			{
-			  this->tlb_inverse.insert({0x20,1});
-			  this->tlb_inverse.insert({0x21,1});
-			  this->tlb_inverse.insert({0x22,1});
-			  this->tlb_inverse.insert({0x23,1});
-			  this->tlb_inverse.insert({0x24,1});
-			  this->tlb_inverse.insert({0x25,1});
-			  this->tlb_inverse.insert({0x26,1});
-			  this->tlb_inverse.insert({0x27,1});
-			  this->tlb_inverse.insert({0x28,1});
-			  this->tlb_inverse.insert({0x29,1});
-			  this->tlb_inverse.insert({0x2a,1});
-			  this->tlb_inverse.insert({0x2b,1});
-			  this->tlb_inverse.insert({0x2c,1});
-			  this->tlb_inverse.insert({0x2d,1});
-			  this->tlb_inverse.insert({0x2e,1});
-			  this->tlb_inverse.insert({0x2f,1});
-     		  DPRINTF(Interstellar_IPP, "cpu_vec length= 16 \n");
-
-			}
-			if(cpu_vec.size()==32)
-			{
-			  this->tlb_inverse.insert({0x40,1});
-			  this->tlb_inverse.insert({0x41,1});
-			  this->tlb_inverse.insert({0x42,1});
-			  this->tlb_inverse.insert({0x43,1});
-			  this->tlb_inverse.insert({0x44,1});
-			  this->tlb_inverse.insert({0x45,1});
-			  this->tlb_inverse.insert({0x46,1});
-			  this->tlb_inverse.insert({0x47,1});
-			  this->tlb_inverse.insert({0x48,1});
-			  this->tlb_inverse.insert({0x49,1});
-			  this->tlb_inverse.insert({0x4a,1});
-			  this->tlb_inverse.insert({0x4b,1});
-			  this->tlb_inverse.insert({0x4c,1});
-			  this->tlb_inverse.insert({0x4d,1});
-			  this->tlb_inverse.insert({0x4e,1});
-			  this->tlb_inverse.insert({0x4f,1});
-			  this->tlb_inverse.insert({0x50,1});
-			  this->tlb_inverse.insert({0x51,1});
-			  this->tlb_inverse.insert({0x52,1});
-			  this->tlb_inverse.insert({0x53,1});
-			  this->tlb_inverse.insert({0x54,1});
-			  this->tlb_inverse.insert({0x55,1});
-			  this->tlb_inverse.insert({0x56,1});
-			  this->tlb_inverse.insert({0x57,1});
-			  this->tlb_inverse.insert({0x58,1});
-			  this->tlb_inverse.insert({0x59,1});
-			  this->tlb_inverse.insert({0x5a,1});
-			  this->tlb_inverse.insert({0x5b,1});
-			  this->tlb_inverse.insert({0x5c,1});
-			  this->tlb_inverse.insert({0x5d,1});
-			  this->tlb_inverse.insert({0x5e,1});
-			  this->tlb_inverse.insert({0x5f,1});
-     		  DPRINTF(Interstellar_IPP, "cpu_vec length= 32 \n");
-
-			}
-			DPRINTF(Interstellar_IPP, "RISCV TLBInverse Is Initialized!\n");
-
-
-
-		}
-
-		void RiscvMetaISAEngine::regProbeListeners()
-		{
+                void RiscvMetaISAEngine::regProbeListeners()
+                {
 			DPRINTF(Interstellar_IPP, "MetaISA Probe listenser Enable Config = %d\n", static_cast<int>(interstellar_probe_enable));
 
 			// MetaISA Engine Working with CPU Listeners
