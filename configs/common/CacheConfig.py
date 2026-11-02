@@ -158,6 +158,13 @@ def config_cache(options, system):
             ):
                 system.l3.prefetcher.degree = options.l3_pref_deg
             if (
+                hasattr(options, "l3_pref_dist")
+                and options.l3_pref_dist is not None
+                and hasattr(system.l3, "prefetcher")
+                and system.l3.prefetcher
+            ):
+                system.l3.prefetcher.distance = options.l3_pref_dist
+            if (
                 hasattr(options, "l3_pref_queue_size")
                 and options.l3_pref_queue_size is not None
                 and hasattr(system.l3, "prefetcher")

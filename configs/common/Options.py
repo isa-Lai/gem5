@@ -401,6 +401,12 @@ def addCommonOptions(parser, default_isa: ISA | None = None):
         help="Degree of prefetching for L3 HWP",
     )
     parser.add_argument(
+        "--l3_pref_dist",
+        type=int,
+        default=None,
+        help="Lookahead distance of prefetching for L3 HWP",
+    )
+    parser.add_argument(
         "--l3_pref_queue_size",
         type=int,
         default=None,

@@ -164,21 +164,21 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
             iDirStreamBuffer->IDirStreamTable[iDirStreamTableKey].stride             = streamStride;
         }
         Addr preftchedAddress,baseAddr = pkt->getAddr();
-        int pref_cnt=0;
-        for(int pref_ind = 1 ; pref_ind < N+1 ; pref_ind++)
-        {
-            //Don't generate iHWP if it is full
-            if(iPrefetcherCacheBuffer->IsFull())
-            {
-              stats_ihwp.tot_iHWP_full++;
-              break;
+        int pref_cnt = 0;
+        int lookahead = (distance > 0) ? distance : 4;
+        for (int pref_ind = 1; pref_ind < N + 1; pref_ind++) {
+            // Don't generate iHWP if it is full
+            if (iPrefetcherCacheBuffer->IsFull()) {
+                stats_ihwp.tot_iHWP_full++;
+                break;
             }
 
-            preftchedAddress  = baseAddr+pref_ind*iPrefetchStep;
-            IpreftecherQueueKey   iPrefetcherQkey(preftchedAddress,streamID, requestorID);
+            preftchedAddress =
+                baseAddr + (lookahead + pref_ind - 1) * iPrefetchStep;
+            IpreftecherQueueKey iPrefetcherQkey(preftchedAddress, streamID,
+                                                requestorID);
 
-            if (!iPrefetcherCacheBuffer->find(iPrefetcherQkey))
-            {
+            if (!iPrefetcherCacheBuffer->find(iPrefetcherQkey)) {
                 addresses.push_back(AddrPriority(preftchedAddress, 0));
                 IPreftecherQueueEntry iPreftchQEnt;
                 iPreftchQEnt.W = 1  ; // Waiting for data
@@ -187,7 +187,6 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
                 iPrefetcherCacheBuffer->Push(std::make_pair(iPrefetcherQkey, iPreftchQEnt));
                 pref_cnt++;
             }
-
         }
         DPRINTF(HWPrefetch, "%d iHWP request entries are added to iHWP Buffer for addr 0x%lx [Step=%d]\n",pref_cnt,baseAddr,iPrefetchStep);
 

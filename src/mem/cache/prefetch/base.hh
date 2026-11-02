@@ -457,6 +457,8 @@ class Base : public ClockedObject
     pfiHitsPerStreamPerCore(int core_id , int stream_id)
     {
        prefetchStats.pfiHitsPerStreamPerCore[core_id * MAX_STREAMS + stream_id]++;
+       prefetchStats.pfUseful++;
+       usefulPrefetches++;
     }
 
     void
