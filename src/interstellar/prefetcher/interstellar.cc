@@ -5,29 +5,30 @@
 
  #include "interstellar/prefetcher/interstellar.hh"
 
- #include <cassert>
+#include <algorithm>
+#include <cassert>
 
- #include "base/intmath.hh"
- #include "base/logging.hh"
- #include "base/random.hh"
- #include "base/trace.hh"
- #include "debug/HWPrefetch.hh"
- #include "mem/cache/replacement_policies/base.hh"
- #include "params/InterStellarPrefetcher.hh"
+#include "base/intmath.hh"
+#include "base/logging.hh"
+#include "base/random.hh"
+#include "base/trace.hh"
+#include "debug/HWPrefetch.hh"
+#include "mem/cache/replacement_policies/base.hh"
+#include "params/InterStellarPrefetcher.hh"
 
- namespace gem5
- {
+namespace gem5
+{
 
- namespace prefetch
- {
+namespace prefetch
+{
 
- InterStellar::InterStellarEntry::InterStellarEntry(const SatCounter8& init_confidence,
-                                  TagExtractor ext)
-   : TaggedEntry(), confidence(init_confidence)
- {
-     registerTagExtractor(ext);
-     invalidate();
- }
+InterStellar::InterStellarEntry::InterStellarEntry(
+    const SatCounter8 &init_confidence, TagExtractor ext)
+    : TaggedEntry(), confidence(init_confidence)
+{
+    registerTagExtractor(ext);
+    invalidate();
+}
 
  void
  InterStellar::InterStellarEntry::invalidate()
@@ -157,6 +158,16 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
       if(iPrefetchStep>0)
         while (iPrefetchStep < blkSize)
             iPrefetchStep += streamStride;
+      if (iPrefetchStep <= 0) {
+          return false;
+      }
+
+      // The initial interval prototype is intentionally limited to private
+      // read-only streams.  In particular, do not treat a store as a
+      // coherence-safe interval authorisation.
+      if ((cellMode == 'B' || cellMode == 'D') && !pkt->isRead()) {
+          return false;
+      }
 
       uint64_t  iDirStreamTableKey;
       uint8_t    streamID    = pkt->getMetaISAStreamID();
@@ -189,15 +200,19 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
                 baseAddr >=
                     interval.startAddr + interval.windowSize * iPrefetchStep) {
                 interval.startAddr = baseAddr;
-                interval.windowSize = intervalW;
+                const Addr pageBase = baseAddr & ~PAGE_OFFSET_MASK;
+                const Addr pageEnd = pageBase + (1ULL << PageShift);
+                const uint64_t pageLines =
+                    (pageEnd - baseAddr + iPrefetchStep - 1) / iPrefetchStep;
+                interval.windowSize = std::min<uint32_t>(
+                    {intervalW, 64, static_cast<uint32_t>(pageLines)});
                 interval.authorisedBitmap = 0;
                 interval.completedBitmap = 0;
                 interval.residentBitmap = 0;
                 interval.demandWaitBitmap = 0;
             }
 
-            int winLimit =
-                (interval.windowSize < 64) ? interval.windowSize : 64;
+            const uint32_t winLimit = interval.windowSize;
             for (int i = 0; i < winLimit; i++) {
                 if (!(interval.authorisedBitmap & (1ULL << i))) {
                     if (creditsAvailable == 0 || sFree == 0) {
@@ -345,8 +360,7 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
                 DPRINTF(HWPrefetch,
                         "Demand Request (coleased in MSHR before) Hit in "
                         "iHWP Buffer: Delete entry from iHWP (A:%x), "
-                        "Len =(%d/%d)
-",
+                        "Len =(%d/%d)\n",
                         pktAddr, (*this->iPrefetcherCacheBuffer).getLength(),
                         (*this->iPrefetcherCacheBuffer).getMaxSize());
             }
@@ -478,22 +492,23 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
     IpreftecherQueueKey   iPrefetcherQkey(reqAddress,streamID, requestorID);
     if (iPrefetcherCacheBuffer->find(iPrefetcherQkey))
     {
-      (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
-      if (cellMode == 'B' || cellMode == 'D') {
-          if (sResident > 0) {
-              sResident--;
-              sFree++;
-              assert(sFree + sReserved + sResident == sTotal);
-          } else if (sReserved > 0) {
-              sReserved--;
-              sFree++;
-              assert(sFree + sReserved + sResident == sTotal);
-          }
-      }
+        const bool waiting =
+            (*this->iPrefetcherCacheBuffer)[iPrefetcherQkey].W != 0;
+        (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
+        if (cellMode == 'B' || cellMode == 'D') {
+            if (waiting && sReserved > 0) {
+                sReserved--;
+                sFree++;
+                assert(sFree + sReserved + sResident == sTotal);
+            } else if (!waiting && sResident > 0) {
+                sResident--;
+                sFree++;
+                assert(sFree + sReserved + sResident == sTotal);
+            }
+        }
       DPRINTF(HWPrefetch,
               "HWP (A:%x) is squashed as demand request comes before "
-              "generating it ! iHWP[%d/%d]
-",
+              "generating it ! iHWP[%d/%d]\n",
               reqAddress, (*this->iPrefetcherCacheBuffer).getLength(),
               (*this->iPrefetcherCacheBuffer).getMaxSize());
       return true;
@@ -513,22 +528,23 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
       IpreftecherQueueKey   iPrefetcherQkey(reqAddress,streamID, requestorID);
       if (iPrefetcherCacheBuffer->find(iPrefetcherQkey))
       {
-        (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
-        if (cellMode == 'B' || cellMode == 'D') {
-            if (sResident > 0) {
-                sResident--;
-                sFree++;
-                assert(sFree + sReserved + sResident == sTotal);
-            } else if (sReserved > 0) {
-                sReserved--;
-                sFree++;
-                assert(sFree + sReserved + sResident == sTotal);
-            }
-        }
+          const bool waiting =
+              (*this->iPrefetcherCacheBuffer)[iPrefetcherQkey].W != 0;
+          (*this->iPrefetcherCacheBuffer).delete_data(iPrefetcherQkey);
+          if (cellMode == 'B' || cellMode == 'D') {
+              if (waiting && sReserved > 0) {
+                  sReserved--;
+                  sFree++;
+                  assert(sFree + sReserved + sResident == sTotal);
+              } else if (!waiting && sResident > 0) {
+                  sResident--;
+                  sFree++;
+                  assert(sFree + sReserved + sResident == sTotal);
+              }
+          }
         DPRINTF(HWPrefetch,
                 "HWP (A:%x) is deleted (InValidation Comes!) ! "
-                "iHWP[%d/%d]
-",
+                "iHWP[%d/%d]\n",
                 reqAddress, (*this->iPrefetcherCacheBuffer).getLength(),
                 (*this->iPrefetcherCacheBuffer).getMaxSize());
         int idx_per_stream_per_core  = MAX_STREAMS * pkt->getMetaISARequestorID() + pkt->getMetaISAStreamID();
