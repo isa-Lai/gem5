@@ -75,6 +75,7 @@ BENCHMARKS = {
     },
 }
 
+GAIN_MIN = 1.02  # >2% speedup over cell A counts as observable
 INTERVAL_W = 16
 CREDITS = 16
 CFG_IPP = "configs/ramulator/DDR4-config-Gen.cfg"
@@ -116,8 +117,11 @@ def build_command(bench, profile, lat, arm, outdir):
         f"--cmd={BENCHMARKS[bench]['bin']}",
         f"--options={options}", f"--maxinsts={maxinsts}",
     ]
+    if ipp or prefetch:
+        # the iMC IPP/iBatch logic is only enabled with --meta-isa-type=IPP
+        cmd += ["--meta-isa-type=IPP"]
     if prefetch:
-        cmd += ["--meta-isa-type=IPP", "--l3-hwp-type=InterStellarPrefetcher"]
+        cmd += ["--l3-hwp-type=InterStellarPrefetcher"]
     if cell:
         cmd += [
             f"--meta-isa-cell={cell}", f"--meta-isa-prep-k={k}",
@@ -386,12 +390,13 @@ def write_outputs(benches, lats, ks, results, checksums, rcs, checks, perf,
             fh.write(f"\nBest combined: {best['benchmark']}@"
                      f"{best['latency']} K={best['K']} "
                      f"S_D/A={best['S_D/A']:.4f}x\n")
-        any_gain = any(max(p["S_B/A"], p["S_C/A"], p["S_D/A"]) > 1.0
+        any_gain = any(max(p["S_B/A"], p["S_C/A"], p["S_D/A"]) > GAIN_MIN
                        for p in perf)
-        fh.write(f"\nObservable improvement over A in at least one point: "
+        fh.write(f"\nObservable improvement (> {100*(GAIN_MIN-1):.0f}% over A) "
+                 f"in at least one point: "
                  f"**{'YES' if any_gain else 'NO'}**\n")
     return csv_path, md, any(
-        max(p["S_B/A"], p["S_C/A"], p["S_D/A"]) > 1.0 for p in perf)
+        max(p["S_B/A"], p["S_C/A"], p["S_D/A"]) > GAIN_MIN for p in perf)
 
 
 def main():
