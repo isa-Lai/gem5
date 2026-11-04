@@ -94,7 +94,10 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
     ADD_STAT(tot_req_iPrefteched, statistics::units::Count::get(),
              "Number of generated interstellar hardware prefetches"),
     ADD_STAT(tot_iHWP_full, statistics::units::Count::get(),
-             "Number of times iHWP got full")
+             "Number of times iHWP got full"),
+    ADD_STAT(tot_iHWP_dropped, statistics::units::Count::get(),
+             "Number of iHWP buffer entries released because Queued dropped "
+             "the prefetch candidate")
 {
 }
 
@@ -518,6 +521,31 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
 
  }
 
+
+ void
+ InterStellar::releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr)
+ {
+    // A candidate pushed into the iHWP buffer by calculatePrefetch() was
+    // dropped by Queued before reaching the prefetch queue (page crossing
+    // without MMU, already in cache/MSHR, throttled): free its entry,
+    // otherwise the buffer leaks until IsFull() disables prefetching.
+    IpreftecherQueueKey key(addr, pkt->getMetaISAStreamID(),
+                            pkt->getMetaISARequestorID());
+    if (!iPrefetcherCacheBuffer->find(key))
+        return;
+    const bool waiting = (*this->iPrefetcherCacheBuffer)[key].W != 0;
+    iPrefetcherCacheBuffer->delete_data(key);
+    if (cellMode == 'B' || cellMode == 'D') {
+        if (waiting && sReserved > 0) {
+            sReserved--;
+            sFree++;
+            if (creditsAvailable < creditsTotal)
+                creditsAvailable++;
+            assert(sFree + sReserved + sResident == sTotal);
+        }
+    }
+    ++stats_ihwp.tot_iHWP_dropped;
+ }
 
  bool
  InterStellar::deleteiHWPEntry(const PacketPtr &pkt)

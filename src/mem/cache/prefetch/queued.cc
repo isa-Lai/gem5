@@ -216,7 +216,14 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
 
     // Queue up generated prefetches
     size_t num_pfs = 0;
+    bool stopped = false;
     for (AddrPriority& addr_prio : addresses) {
+        const Addr orig_pf_addr = addr_prio.first;
+        if (stopped) {
+            if (iHWPSrc)
+                releaseDroppedPrefetch(pkt, orig_pf_addr);
+            continue;
+        }
 
         // Block align prefetch address
         addr_prio.first = blockAddress(addr_prio.first);
@@ -236,13 +243,18 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
             DPRINTF(HWPrefetch, "Found a pf candidate addr: %#x, "
                     "inserting into prefetch queue.\n", new_pfi.getAddr());
             // Create and insert the request
-            insert(pkt, new_pfi, addr_prio.second, cache, iHWPSrc);
-            num_pfs += 1;
+            if (insert(pkt, new_pfi, addr_prio.second, cache, iHWPSrc)) {
+                num_pfs += 1;
+            } else if (iHWPSrc) {
+                releaseDroppedPrefetch(pkt, orig_pf_addr);
+            }
             if (num_pfs == max_pfs) {
-                break;
+                stopped = true;
             }
         } else {
             DPRINTF(HWPrefetch, "Ignoring page crossing prefetch.\n");
+            if (iHWPSrc)
+                releaseDroppedPrefetch(pkt, orig_pf_addr);
         }
     }
 }
@@ -398,16 +410,16 @@ Queued::createPrefetchRequest(Addr addr, PrefetchInfo const &pfi,
     return translation_req;
 }
 
-void
+bool
 Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
                int32_t priority, const CacheAccessor &cache, bool iHWPSrc)
 {
     if (queueFilter) {
         if (alreadyInQueue(pfq, new_pfi, priority)) {
-            return;
+            return false;
         }
         if (alreadyInQueue(pfqMissingTranslation, new_pfi, priority)) {
-            return;
+            return false;
         }
     }
 
@@ -448,7 +460,7 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
 
         // ContextID is needed for translation
         if (!pkt->req->hasContextId()) {
-            return;
+            return false;
         }
         if (useVirtualAddresses) {
             has_target_pa = false;
@@ -465,7 +477,7 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
         } else {
             // Using PA for training but the request does not have a VA,
             // unable to process this page crossing prefetch.
-            return;
+            return false;
         }
     }
     if (has_target_pa && cacheSnoop &&
@@ -474,7 +486,7 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
         statsQueued.pfInCache++;
         DPRINTF(HWPrefetch, "Dropping redundant in "
                 "cache/MSHR prefetch addr:%#x\n", target_paddr);
-        return;
+        return false;
     }
 
     /* Create the packet and find the spot to insert it */
@@ -498,6 +510,7 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
                 "addr:%#x priority: %3d\n", new_pfi.getAddr(), priority);
         addToQueue(pfqMissingTranslation, dpp);
     }
+    return true;
 }
 
 void
