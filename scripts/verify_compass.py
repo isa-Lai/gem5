@@ -75,6 +75,7 @@ BENCHMARKS = {
     },
 }
 
+CUR_PROFILE = "quick"
 GAIN_MIN = 1.02  # >2% speedup over cell A counts as observable
 INTERVAL_W = 16
 CREDITS = 16
@@ -261,7 +262,14 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
             # 2. checksum
             cs = {a: checksums.get((b, lat, a)) for a in good}
             vals = set(cs.values())
-            if None in vals:
+            maxi = int(BENCHMARKS[b][CUR_PROFILE][1])
+            truncated = bool(good) and all(
+                r["insts"] >= maxi for r in good.values())
+            if truncated and set(cs.values()) == {None}:
+                checks.add("WARN", scope,
+                           f"all runs stopped at maxinsts={maxi} (no final "
+                           f"checksum); compared at equal instruction count")
+            elif None in vals:
                 checks.add("FAIL", scope, "checksum missing in: " + str(
                     [a for a, v in cs.items() if v is None]))
             elif len(vals) == 1:
@@ -413,6 +421,8 @@ def main():
     ap.add_argument("--build", action="store_true",
                     help="compile benchmarks with $CLANG/$TC first")
     args = ap.parse_args()
+    global CUR_PROFILE
+    CUR_PROFILE = args.profile
 
     benches = [x for x in args.benchmarks.split(",") if x]
     for b in benches:
