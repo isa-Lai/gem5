@@ -177,7 +177,12 @@ namespace ramulator
         ScalarStat Tot_Req_deferred_In_Future_iBatch  ; 
 		//# issue iBatch and finished as iBatch 
 		ScalarStat Tot_Req_iBatched                   ; 
-		ScalarStat Tot_Req_issue_iBatch               ; 
+		ScalarStat Tot_Req_issue_iBatch               ;
+		      //# COMPASS Stage 1 (K-segment preparation; all zero when prepK == 1)
+		      ScalarStat prep_segments_advanced             ;
+		      ScalarStat prep_blocked_unmapped_page         ;
+		      ScalarStat prep_blocked_buffer_full           ;
+		      ScalarStat prep_blocked_actq_full             ;
 
         //###  Abotaleb : Get R/W and W/R transitions number       ###     
         // 1- Due to mode change only
@@ -379,6 +384,7 @@ namespace ramulator
         int enableIPrefetcherWinUpdate   ; // Enable Misses Window Tracking Update when iPrefetch request happens
         int enableIPP                    ; // Disable IPP (Page Policy Modification)
         int iBatchWidth                 ;
+        int prepK = 1                   ; // COMPASS Stage 1 preparation horizon K (1 = legacy behaviour)
         uint32_t iBufferSize            ;
         uint8_t  iBuffer_Repl_Policy    ; // iBuffer Replacement Policy (0:None , 1:LRU )
         int  enableInterStreamKnowledge  ; // Phase 2 of the Project 
@@ -833,6 +839,14 @@ namespace ramulator
                 this->iBatchWidth = stoi(configs["iBatchWidth"]);
             else
                 this->iBatchWidth = ramulator::DEF_PREFTECH_STREAM_DEPTH;
+
+            // COMPASS Stage 1 horizon (set by gem5 from --meta-isa-prep-k, forced to 1 unless cell C/D)
+            this->prepK = 1;
+            if(configs.contains("prepK"))
+            {
+                int k = stoi(configs["prepK"]);
+                this->prepK = (k >= 1) ? k : 1;
+            }
 
             if(configs.contains("iBuffer_Repl_Policy"))
                 this->iBuffer_Repl_Policy = stoi(configs["iBuffer_Repl_Policy"]);
@@ -1299,6 +1313,26 @@ namespace ramulator
             Tot_Req_issue_iBatch
                 .name("Total_Requests_issue_iBatches_" + to_string(channel->id))
                 .desc("Total Requests issue iBatch.")
+                .precision(0);
+
+            prep_segments_advanced
+                .name("prep_segments_advanced_" + to_string(channel->id))
+                .desc("Stage 1 K-segment preparation: extra segments committed.")
+                .precision(0);
+
+            prep_blocked_unmapped_page
+                .name("prep_blocked_unmapped_page_" + to_string(channel->id))
+                .desc("Stage 1 K-segment preparation halted at page boundary.")
+                .precision(0);
+
+            prep_blocked_buffer_full
+                .name("prep_blocked_buffer_full_" + to_string(channel->id))
+                .desc("Stage 1 K-segment preparation halted: target iBuffer full.")
+                .precision(0);
+
+            prep_blocked_actq_full
+                .name("prep_blocked_actq_full_" + to_string(channel->id))
+                .desc("Stage 1 K-segment preparation halted: actq and pendingActq full.")
                 .precision(0);
             //
             read_to_write_transitions          
@@ -2906,9 +2940,13 @@ namespace ramulator
                                 ctrls[ch_id]->iBatches_cnt_per_bank  [iBatcher_BGi_bank_id[bgCnt]] += iBatchesBGarr[bgCnt][ch_id];
                             }
                         }
+                        // COMPASS Stage 1: K>1 (Cell C/D) extends preparation past this row-local batch (regular streams only)
+                        if(this->prepK > 1 && regularStr && isDemandIniBatchRange != PAST)
+                            prepAdvanceSegments(req, iDirStreamTableKey, iPrefetchStep, N);
+
                         // If due to the HWP reordering , the current demand request outside the iPreftech expected range
                         int ch_idx = int(T::Level::Channel)                     ;
-                        int crnt_ch  = req->addr_vec[ch_idx]  ;   
+                        int crnt_ch  = req->addr_vec[ch_idx]  ;
  
                         
                         if(this->enableHwpAwareiBatch)
@@ -3021,6 +3059,203 @@ namespace ramulator
             /************ Intelligent  Prefetcher Logic End  ********************/
             /***********vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*********/
     }
+
+        /***************************************************************
+         * COMPASS Stage 1 : Bounded Independent Preparation (K segments)
+         * Only called when prepK > 1 (Cell C/D) for a regular DIR_STREAM, right after
+         * the ordinary (row-local, N-wide) iBatch of the current segment was generated.
+         * It prepares up to (prepK-1) more N-wide segments beyond the iBatch frontier.
+         * Hard bounds (never bypassed, never evicts):
+         *   - horizon       : never beyond demand addr + prepK*N lines (no runaway lookahead)
+         *   - page boundary : stops at the 4KB page of the current prepared frontier
+         *   - iBuffer       : stops if target-bank iBuffer has no free entry
+         *   - actq/pendingActq : stops if both are at their existing max
+         * A segment ends at N lines or at a DRAM row change (next segment starts there).
+         ***************************************************************/
+        void prepAdvanceSegments(list<Request>::iterator req, const uint64_t & iDirStreamTableKey,
+                                 const int & iPrefetchStep, const int & N)
+        {
+            struct PrepItem { Request r; int ch; int bank; bool toActq; };
+
+            const int      PREP_PAGE_SHIFT = 12; // 4KB page
+            const int      IGNORE_CHANNEL  = 1;
+            const int      r               = int(T::Level::Row);
+            const int      coreid          = req->coreid;
+            const int      sid             = req->metaISAStreamID;
+            const int      extSegments     = this->prepK - 1;
+
+            // Frontier of the already prepared stream (max over channels, ignoring "unset" = -1)
+            uint64_t frontier = 0;
+            bool     haveFrontier = false;
+            for(int c = 0 ; c < channels ; c++)
+            {
+                auto it = ctrls[c]->iDirStreamBuffer->IDirStreamTable.find(iDirStreamTableKey);
+                if(it == ctrls[c]->iDirStreamBuffer->IDirStreamTable.end())
+                    continue;
+                if(it->second.previBatchLastAddr == (uint64_t)-1)
+                    continue;
+                if(!haveFrontier || it->second.previBatchLastAddr > frontier)
+                {
+                    frontier     = it->second.previBatchLastAddr;
+                    haveFrontier = true;
+                }
+            }
+            if(!haveFrontier)
+                return;
+
+            std::vector<PrepItem> segBuf;
+            std::map<int,int>     bufAdd, actAdd, pendAdd; // reserved (not yet committed) slots: key=ch*MAX_BANKS+bank / ch
+            vector<int>           segStartVec;
+            int                   inSeg        = 0;
+            int                   segmentsDone = 0;
+            bool                  halted       = false;
+            uint64_t              cur          = frontier + iPrefetchStep;
+            uint64_t              lastProcessed = frontier;
+            const uint64_t        horizonEnd    = (uint64_t)req->addr + (uint64_t)this->prepK * (uint64_t)N * (uint64_t)iPrefetchStep;
+            const int             idx_per_stream_per_core = req->metaISAStreamID + ( MAX_STREAMS*req->metaISARequestorID);
+
+            auto commitSegment = [&]()
+            {
+                if(segBuf.empty())
+                    return;
+                segBuf.front().r.is_start_inIBatch = true;
+                segBuf.back().r.is_last_inIBatch   = true;
+                for(size_t i = 0 ; i < segBuf.size() ; i++)
+                {
+                    PrepItem & item = segBuf[i];
+                    Controller<T> * tc = ctrls[item.ch];
+                    tc->iBatchHistory->Push(std::make_pair((uint64_t)item.r.addr, 0));
+                    if(item.toActq)
+                        tc->actq.q.push_back(item.r);
+                    else
+                        tc->pendingActq.q.push_back(item.r);
+                    IPreftecherQueueEntry iBatchEntry;
+                    iBatchEntry.W             = 1;
+                    iBatchEntry.R             = 0;
+                    iBatchEntry.I             = 0;
+                    iBatchEntry.pendAct       = 0;
+                    iBatchEntry.isStartSeg    = item.r.is_start_inIBatch;
+                    iBatchEntry.iBatchRequest = NULL;
+                    iBufferKeyClass iBufferKeyObj(item.r.addr, item.r.metaISAStreamID, item.r.metaISARequestorID);
+                    ++tc->Tot_Req_iBatched;
+                    tc->iBuffer[item.bank]->Push(std::make_pair(iBufferKeyObj, iBatchEntry));
+                    tc->iBatches_cnt_per_Stream[idx_per_stream_per_core] += 1;
+                    tc->iBatches_cnt_per_bank  [item.bank]               += 1;
+                }
+                ++prep_segments_advanced;
+                segBuf.clear();
+            };
+            auto closeSegment = [&]()
+            {
+                commitSegment();
+                ++segmentsDone;
+                inSeg = 0;
+            };
+
+            while(segmentsDone < extSegments && !halted)
+            {
+                if(cur >= horizonEnd)
+                    break;
+                // Page boundary: next position must stay in the page of the prepared frontier
+                // (no mapping known for the next page -> halt cleanly)
+                if( (cur >> PREP_PAGE_SHIFT) != (frontier >> PREP_PAGE_SHIFT) )
+                {
+                    ++prep_blocked_unmapped_page;
+                    break;
+                }
+                vector<int> vec = addr_to_addr_vec(coreid, (long)cur, sid);
+                if(inSeg == 0)
+                    segStartVec = vec;
+                else
+                {
+                    bool sameSeg = std::equal(segStartVec.begin()+IGNORE_CHANNEL, segStartVec.begin()+r, vec.begin()+IGNORE_CHANNEL)
+                                   && segStartVec[r] == vec[r];
+                    if(!sameSeg) // DRAM row boundary : current segment ends, position 'cur' starts the next one
+                    {
+                        closeSegment();
+                        continue;
+                    }
+                }
+
+                int ch   = vec[int(T::Level::Channel)];
+                int bank = vec[int(T::Level::Bank)];
+                if (channel->spec->standard_name == "DDR4" || channel->spec->standard_name == "GDDR5")
+                    bank += vec[int(T::Level::Bank) - 1] * channel->spec->org_entry.count[int(T::Level::Bank)];
+
+                iBufferKeyClass iBufferKeyObj((uint64_t)cur, sid, req->metaISARequestorID);
+                bool skip = false;
+                if(ctrls[ch]->iBuffer[bank] != NULL)
+                {
+                    if(ctrls[ch]->iBuffer[bank]->find(iBufferKeyObj) || ctrls[ch]->iBatchHistory->find((uint64_t)cur))
+                        skip = true; // prepared before
+                }
+                if(!skip)
+                {
+                    for(auto itr = ctrls[ch]->readq.q.begin() ; itr != ctrls[ch]->readq.q.end() ; ++itr)
+                        if(itr->addr == (long)cur)
+                        {
+                            skip = true; // a demand for it is already in flight in readq
+                            break;
+                        }
+                }
+
+                if(!skip)
+                {
+                    // Bound 1 : free iBuffer entry in target bank (never evict)
+                    if(ctrls[ch]->iBuffer[bank] == NULL ||
+                       (uint64_t)ctrls[ch]->iBuffer[bank]->getLength() + (uint64_t)bufAdd[ch*MAX_BANKS+bank] + 1 >= (uint64_t)ctrls[ch]->iBuffer[bank]->getMaxSize())
+                    {
+                        ++prep_blocked_buffer_full;
+                        halted = true;
+                        break;
+                    }
+                    // Bound 2 : existing actq / pendingActq caps
+                    bool toActq = false;
+                    if((uint64_t)ctrls[ch]->actq.size() + (uint64_t)actAdd[ch] < (uint64_t)ctrls[ch]->actq.max)
+                        toActq = true;
+                    else if((uint64_t)ctrls[ch]->pendingActq.size() + (uint64_t)pendAdd[ch] >= (uint64_t)ctrls[ch]->pendingActq.max)
+                    {
+                        ++prep_blocked_actq_full;
+                        halted = true;
+                        break;
+                    }
+
+                    Request er = *req;
+                    er.addr               = (long)cur;
+                    er.addr_vec           = vec;
+                    er.nextAddr           = (long)(cur + iPrefetchStep);
+                    er.next_addr_vec      = addr_to_addr_vec(coreid, er.nextAddr, sid);
+                    er.is_base_addr       = false;
+                    er.is_first_command   = true;
+                    er.is_iprefetched     = true;
+                    er.lead_iBatch        = false;
+                    er.is_last_inIBatch   = false;
+                    er.is_start_inIBatch  = false;
+
+                    bufAdd[ch*MAX_BANKS+bank]++;
+                    if(toActq) actAdd[ch]++; else pendAdd[ch]++;
+                    segBuf.push_back(PrepItem{er, ch, bank, toActq});
+                }
+
+                ++inSeg;
+                lastProcessed = cur;
+                cur          += iPrefetchStep;
+                if(inSeg >= N)
+                    closeSegment();
+            }
+            commitSegment(); // partial segment (halted / page boundary)
+
+            if(lastProcessed != frontier)
+            {
+                for(int c = 0 ; c < channels ; c++)
+                {
+                    auto it = ctrls[c]->iDirStreamBuffer->IDirStreamTable.find(iDirStreamTableKey);
+                    if(it != ctrls[c]->iDirStreamBuffer->IDirStreamTable.end())
+                        it->second.previBatchLastAddr = lastProcessed;
+                }
+            }
+        }
+
 
 
         // ipp

@@ -17,3 +17,5 @@ class Ramulator(AbstractMemory):
     # gagan
     real_warm_up = Param.UInt64(100, "specify the real warm up time")
     output_dir = Param.String("", "Ramulator trace output")
+    # COMPASS Stage 1 preparation horizon K (1 = legacy; >1 only for cells C/D)
+    prepK = Param.UInt32(1, "Stage 1 Preparation Horizon K segments (1, 2, 4)")

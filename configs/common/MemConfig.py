@@ -72,6 +72,12 @@ def create_mem_intf(intf, r, i, intlv_bits, intlv_size, xor_low_bit, options=Non
         interface.real_warm_up = options.real_warm_up
         interface.config_file = options.ramulator_config
         interface.output_dir = m5.options.outdir + "/"
+        # COMPASS Stage 1: K-segment preparation only for cells C/D;
+        # cells A/B always use K=1 (legacy behaviour, no lookahead).
+        if getattr(options, "meta_isa_cell", "A") in ("C", "D"):
+            interface.prepK = getattr(options, "meta_isa_prep_k", 1) or 1
+        else:
+            interface.prepK = 1
         print("Ramulator system configuration file = ", options.ramulator_config)
         if options.num_cpus == 0:
             interface.num_cpus = options.num_mem_stressors

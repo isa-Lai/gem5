@@ -1,19 +1,43 @@
 #!/usr/bin/env python3
-"""Run the COMPASS benchmark matrix and generate self-contained reports."""
+"""Run the COMPASS 2x2 factorial benchmark matrix and generate reports.
 
+Legacy external baselines: stock COTS, pure IPP (iMC only), pure prefetcher
+(iPF only).  Factorial cells (all iPF+IPP co-design hardware):
+  A = current prep + line pulls      (K=1)
+  B = current prep + interval deliv. (K=1)
+  C = K-segment prep + line pulls
+  D = K-segment prep + interval deliv.
+
+Usage:
+  run_evaluation.py [--force] [--dry-run] [--latencies 40,120]
+                    [--benchmarks daxpy_large,kv_cache] [--k {1,2,4}]
+Environment: GEM5_OPT, OUTPUT_DIR, META_ISA_PREP_K.
+"""
+
+import argparse
 import csv
 import html
 import math
 import os
+import re
 import subprocess
 import sys
 import time
 
-GEM5_ROOT = "/home/laiy24/interstelar/gem5"
-GEM5_OPT = os.path.join(GEM5_ROOT, "build/RISCV/gem5.opt")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+GEM5_ROOT = os.path.dirname(SCRIPT_DIR)
+GEM5_OPT = os.environ.get(
+    "GEM5_OPT", os.path.join(GEM5_ROOT, "build/RISCV/gem5.opt")
+)
 CONFIG_SE = os.path.join(GEM5_ROOT, "configs/example/se.py")
-OUTPUT_DIR = "/home/laiy24/interstelar/output"
+OUTPUT_DIR = os.path.normpath(
+    os.environ.get("OUTPUT_DIR", os.path.join(GEM5_ROOT, "..", "output"))
+)
 M5OUT_BASE = os.path.join(GEM5_ROOT, "m5out_eval")
+
+DEFAULT_PREP_K = 2
+INTERVAL_W = 16
+CREDITS = 16
 
 # These values deliberately exceed the 2 MiB L3 and 512 KiB L2.  Keep the
 # values in sync with the defaults in the benchmark sources.
@@ -38,29 +62,69 @@ BENCHMARKS = [
     },
 ]
 
-LATENCIES = [40, 120, 300, 450]
+LATENCIES = [40, 80, 120]
+
+# "cell" arms use the iPF+IPP co-design command; "k" is None for cells that
+# take the user-selected K (C, D) and 1 for A, B.
 ARMS = {
     "stock": {
-        "label": "Stock baseline",
+        "label": "Stock COTS",
         "ipp": False,
         "prefetch": False,
+        "cell": None,
     },
     "ipp": {
-        "label": "Pure IPP",
+        "label": "Pure IPP (iMC only)",
         "ipp": True,
         "prefetch": False,
+        "cell": None,
     },
     "prefetch": {
-        "label": "Pure prefetcher",
+        "label": "Pure prefetcher (iPF only)",
         "ipp": False,
         "prefetch": True,
+        "cell": None,
     },
-    "full": {
-        "label": "Full co-design",
+    "A": {
+        "label": "A: current prep + line pulls",
         "ipp": True,
         "prefetch": True,
+        "cell": "A",
+        "k": 1,
+    },
+    "B": {
+        "label": "B: current prep + interval delivery",
+        "ipp": True,
+        "prefetch": True,
+        "cell": "B",
+        "k": 1,
+    },
+    "C": {
+        "label": "C: K-segment prep + line pulls",
+        "ipp": True,
+        "prefetch": True,
+        "cell": "C",
+        "k": None,
+    },
+    "D": {
+        "label": "D: K-segment prep + interval delivery",
+        "ipp": True,
+        "prefetch": True,
+        "cell": "D",
+        "k": None,
     },
 }
+CELLS = ("A", "B", "C", "D")
+EPS = 1e-30
+
+
+def ratio(numerator, denominator):
+    """Guarded division: 0.0 when the denominator is not positive."""
+    return numerator / denominator if denominator > 0 else 0.0
+
+
+def safe_ln(value):
+    return math.log(max(value, EPS))
 
 
 def parse_stats(stats_path):
@@ -76,11 +140,15 @@ def parse_stats(stats_path):
         "coverage": 0.0,
         "demandMshrMisses": 0,
         "overallMisses": 0,
+        "prepSegmentsAdvanced": 0,
+        "prepBlocked": 0,
     }
     if not os.path.isfile(stats_path):
         return stats
 
     values = {}
+    prep_segments = 0.0
+    prep_blocked = 0.0
     with open(stats_path) as stats_file:
         for line in stats_file:
             parts = line.split()
@@ -88,9 +156,19 @@ def parse_stats(stats_path):
                 continue
             key = parts[0]
             try:
-                values[key] = float(parts[1])
+                number = float(parts[1])
             except ValueError:
                 continue
+            values[key] = number
+            # Sum scalar stats and ``::total`` rollups only (no buckets).
+            if "::" in key and not key.endswith("::total"):
+                continue
+            base = key.split("::")[0].rsplit(".", 1)[-1]
+            # Controller stats carry a per-channel suffix (..._advanced_0).
+            if "prep_segments_advanced" in base:
+                prep_segments += number
+            elif "prep_blocked" in base:
+                prep_blocked += number
 
     def value(*keys):
         for key in keys:
@@ -115,6 +193,8 @@ def parse_stats(stats_path):
     stats["overallMisses"] = int(
         value("system.l3.overallMisses::total", "system.l3.overallMisses")
     )
+    stats["prepSegmentsAdvanced"] = int(prep_segments)
+    stats["prepBlocked"] = int(prep_blocked)
     return stats
 
 
@@ -130,7 +210,16 @@ def run_command(cmd, log_path):
     return process.returncode
 
 
-def command_for(bench, arm, latency, output_dir):
+def arm_k(arm, prep_k):
+    return prep_k if arm.get("k") is None else arm["k"]
+
+
+def run_name_for(bench, arm_name, arm, latency, prep_k):
+    k_tag = f"_k{arm_k(arm, prep_k)}" if arm_name in ("C", "D") else ""
+    return f"{bench['name']}_{arm_name}{k_tag}_lat{latency}"
+
+
+def command_for(bench, arm, latency, output_dir, prep_k):
     config = (
         "configs/ramulator/DDR4-config-Gen.cfg"
         if arm["ipp"]
@@ -164,6 +253,15 @@ def command_for(bench, arm, latency, output_dir):
             [
                 "--meta-isa-type=IPP",
                 "--l3-hwp-type=InterStellarPrefetcher",
+            ]
+        )
+    if arm["cell"]:
+        command.extend(
+            [
+                f"--meta-isa-cell={arm['cell']}",
+                f"--meta-isa-prep-k={arm_k(arm, prep_k)}",
+                f"--meta-isa-interval-w={INTERVAL_W}",
+                f"--meta-isa-credits={CREDITS}",
             ]
         )
     return command
@@ -219,6 +317,8 @@ def svg_chart(path, title, series, y_label):
             f"{x_value}</text>"
         )
     for index, (name, points) in enumerate(series.items()):
+        if not points:
+            continue
         coords = []
         for x_value, value in points:
             x_index = x_values.index(x_value)
@@ -245,13 +345,43 @@ def svg_chart(path, title, series, y_label):
         chart_file.write("\n".join(lines))
 
 
-def write_reports(results):
+def find_row(results, benchmark, arm, latency):
+    for r in results:
+        if (
+            r["benchmark"] == benchmark
+            and r["arm"] == arm
+            and r["cxl_latency_cycles"] == latency
+        ):
+            return r
+    return None
+
+
+def factorial(results, benchmark, latency):
+    """Return 2x2 attribution metrics, or None if any cell is unusable."""
+    rows = {c: find_row(results, benchmark, c, latency) for c in CELLS}
+    if any(row is None or row["sim_seconds"] <= 0 for row in rows.values()):
+        return None
+    t = {c: rows[c]["sim_seconds"] for c in CELLS}
+    return {
+        "S_B": ratio(t["A"], t["B"]),
+        "S_C": ratio(t["A"], t["C"]),
+        "S_D": ratio(t["A"], t["D"]),
+        "delivery": safe_ln(ratio(t["A"], t["B"])),
+        "preparation": safe_ln(ratio(t["A"], t["C"])),
+        "combined": safe_ln(ratio(t["A"], t["D"])),
+        "interaction": safe_ln(ratio(t["B"] * t["C"], t["A"] * t["D"])),
+    }
+
+
+def write_reports(results, benchmarks, latencies, prep_k):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     csv_path = os.path.join(OUTPUT_DIR, "results.csv")
     fields = [
         "benchmark",
         "arm",
         "arm_label",
+        "cell",
+        "prep_k",
         "cxl_latency_cycles",
         "ipc",
         "sim_seconds",
@@ -262,6 +392,8 @@ def write_reports(results):
         "prefetch_coverage",
         "l3_demand_mshr_misses",
         "l3_overall_misses",
+        "prep_segments_advanced",
+        "prep_blocked",
         "return_code",
     ]
     with open(csv_path, "w", newline="") as csv_file:
@@ -269,58 +401,45 @@ def write_reports(results):
         writer.writeheader()
         writer.writerows(results)
 
-    by_benchmark = {}
-    for result in results:
-        by_benchmark.setdefault(result["benchmark"], []).append(result)
-    for benchmark, benchmark_results in by_benchmark.items():
+    for benchmark in benchmarks:
+        name = benchmark["name"]
         series = {}
-        stock_ipc = {
-            r["cxl_latency_cycles"]: r["ipc"]
-            for r in benchmark_results
-            if r["arm"] == "stock"
-        }
-        for arm in ARMS:
-            series[ARMS[arm]["label"]] = [
-                (
-                    r["cxl_latency_cycles"],
+        for arm_name, arm in ARMS.items():
+            points = []
+            for latency in latencies:
+                row = find_row(results, name, arm_name, latency)
+                stock = find_row(results, name, "stock", latency)
+                if row is None or stock is None:
+                    continue
+                points.append(
                     (
-                        r["ipc"] / stock_ipc.get(r["cxl_latency_cycles"], 1.0)
-                        if stock_ipc.get(r["cxl_latency_cycles"], 0.0) > 0
-                        else 0.0
-                    ),
+                        latency,
+                        ratio(stock["sim_seconds"], row["sim_seconds"])
+                        if row["sim_seconds"] > 0
+                        else 0.0,
+                    )
                 )
-                for r in benchmark_results
-                if r["arm"] == arm
-            ]
+            series[arm["label"]] = points
         svg_chart(
-            os.path.join(OUTPUT_DIR, f"{benchmark}_speedup_scaling.svg"),
-            f"{benchmark}: speedup across CXL latency",
+            os.path.join(OUTPUT_DIR, f"{name}_speedup_scaling.svg"),
+            f"{name}: speedup vs stock across CXL latency",
             series,
             "speedup vs stock",
         )
 
     prefetch_series = {}
-    for arm in ("prefetch", "full"):
-        prefetch_series[f"{arm} pfIssued"] = [
-            (r["cxl_latency_cycles"], r["pf_issued"])
-            for r in results
-            if r["arm"] == arm
-        ]
-        prefetch_series[f"{arm} pfUseful"] = [
-            (r["cxl_latency_cycles"], r["pf_useful"])
-            for r in results
-            if r["arm"] == arm
-        ]
-        prefetch_series[f"{arm} accuracy"] = [
-            (r["cxl_latency_cycles"], r["prefetch_accuracy"])
-            for r in results
-            if r["arm"] == arm
-        ]
-        prefetch_series[f"{arm} coverage"] = [
-            (r["cxl_latency_cycles"], r["prefetch_coverage"])
-            for r in results
-            if r["arm"] == arm
-        ]
+    for arm in ("prefetch",) + CELLS:
+        for label, key in (
+            ("pfIssued", "pf_issued"),
+            ("pfUseful", "pf_useful"),
+            ("accuracy", "prefetch_accuracy"),
+            ("coverage", "prefetch_coverage"),
+        ):
+            prefetch_series[f"{arm} {label}"] = [
+                (r["cxl_latency_cycles"], r[key])
+                for r in results
+                if r["arm"] == arm
+            ]
     svg_chart(
         os.path.join(OUTPUT_DIR, "prefetch_activity.svg"),
         "Prefetch utility and accuracy",
@@ -328,89 +447,71 @@ def write_reports(results):
         "count / ratio",
     )
 
-    quadrant_series = {}
-    for arm in ARMS:
-        quadrant_series[ARMS[arm]["label"]] = [
-            (
-                latency,
-                next(
-                    (
-                        r["ipc"]
-                        for r in results
-                        if r["arm"] == arm
-                        and r["benchmark"] == BENCHMARKS[0]["name"]
-                        and r["cxl_latency_cycles"] == latency
-                    ),
-                    0.0,
-                ),
-            )
-            for latency in LATENCIES
-        ]
+    first = benchmarks[0]["name"]
+    quadrant_series = {"A (baseline)": [(lat, 1.0) for lat in latencies]}
+    for cell in ("B", "C", "D"):
+        points = []
+        for latency in latencies:
+            metrics = factorial(results, first, latency)
+            if metrics:
+                points.append((latency, metrics[f"S_{cell}"]))
+        quadrant_series[f"S_{cell}/A"] = points
     svg_chart(
         os.path.join(OUTPUT_DIR, "quadrant_breakdown.svg"),
-        "Four-quadrant ablation (daxpy_large)",
+        f"2x2 factorial speedup over cell A ({first})",
         quadrant_series,
-        "IPC",
+        "speedup vs A",
     )
 
     summary_path = os.path.join(OUTPUT_DIR, "summary.md")
     with open(summary_path, "w") as summary:
-        summary.write("# COMPASS four-quadrant evaluation\n\n")
+        summary.write("# COMPASS 2x2 factorial evaluation\n\n")
         summary.write(
             "Benchmark inputs are scaled beyond the 2 MiB L3: daxpy_large "
             "uses 4,194,304 doubles, kv_cache uses 65,536 tokens, and "
             "dlrm_gather uses 65,536 lookups over a 64 MiB table.\n\n"
         )
         summary.write(
-            "| Arm | Preparation | Delivery/row policy | Prefetcher |\n"
+            f"K for cells C/D = {prep_k}; interval W = {INTERVAL_W}; "
+            f"credits = {CREDITS}.\n\n"
+        )
+        summary.write(
+            "| Arm | Preparation | Delivery | Hardware |\n"
             "|---|---|---|---|\n"
+            "| Stock COTS | none | line pulls | baseline |\n"
+            "| Pure IPP | none | IPP (iMC only) | external baseline |\n"
+            "| Pure prefetcher | iPF | line pulls | external baseline |\n"
+            "| A | current (K=1) | line pulls | iPF+IPP |\n"
+            "| B | current (K=1) | interval | iPF+IPP |\n"
+            f"| C | K-segment (K={prep_k}) | line pulls | iPF+IPP |\n"
+            f"| D | K-segment (K={prep_k}) | interval | iPF+IPP |\n\n"
         )
         summary.write(
-            "| Stock baseline | none | Opened (no IPP) | none |\n"
-            "| Pure IPP | none | IPP | none |\n"
-            "| Pure prefetcher | iPF | Opened (no IPP) | InterStellar |\n"
-            "| Full co-design | iPF | IPP | InterStellar |\n\n"
-        )
-        summary.write(
-            "The CSV reports L3 `demandMshrMisses` and `overallMisses` "
-            "from `::total` statistics for every arm, plus `pfUseful`, "
-            "accuracy, and coverage where a prefetcher is instantiated.\n"
+            "The CSV reports L3 `demandMshrMisses` and `overallMisses`, "
+            "`pfIssued`/`pfUseful`, accuracy, coverage, "
+            "`prep_segments_advanced` and summed `prep_blocked_*` "
+            "(missing stats are 0).\n"
         )
         summary.write(
             "\n## Factorial attribution\n\n"
-            "For each benchmark and latency, the following table reports "
-            "execution-time speedups and the additive interaction in log "
-            "time. Delivery is `IPP / stock`, preparation is "
-            "`prefetch / stock`, and interaction is "
-            "`log(stock/full) - log(stock/IPP) - log(stock/prefetch)`.\n\n"
-            "| Benchmark | Latency | Delivery | Preparation | Full | "
-            "Interaction |\n|---|---:|---:|---:|---:|---:|\n"
+            "Log-time effects: Delivery = ln(T_A/T_B), Preparation = "
+            "ln(T_A/T_C), Combined = ln(T_A/T_D), interaction "
+            "I = ln(T_B*T_C/(T_A*T_D)). Speedups are S_X/A = T_A/T_X.\n\n"
+            "| Benchmark | Latency | S_B/A | S_C/A | S_D/A | Delivery | "
+            "Preparation | Combined | I |\n"
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|\n"
         )
-        for benchmark in BENCHMARKS:
-            for latency in LATENCIES:
-                row = {
-                    r["arm"]: r
-                    for r in results
-                    if r["benchmark"] == benchmark["name"]
-                    and r["cxl_latency_cycles"] == latency
-                }
-                if not all(arm in row for arm in ARMS):
+        for benchmark in benchmarks:
+            for latency in latencies:
+                m = factorial(results, benchmark["name"], latency)
+                if m is None:
                     continue
-                times = {
-                    arm: max(row[arm]["sim_seconds"], 1e-30) for arm in ARMS
-                }
-                delivery = times["stock"] / times["ipp"]
-                preparation = times["stock"] / times["prefetch"]
-                full = times["stock"] / times["full"]
-                interaction = (
-                    math.log(times["stock"] / times["full"])
-                    - math.log(delivery)
-                    - math.log(preparation)
-                )
                 summary.write(
                     f"| `{benchmark['name']}` | {latency} | "
-                    f"{delivery:.3f}x | {preparation:.3f}x | "
-                    f"{full:.3f}x | {interaction:+.4f} |\n"
+                    f"{m['S_B']:.3f}x | {m['S_C']:.3f}x | "
+                    f"{m['S_D']:.3f}x | {m['delivery']:+.4f} | "
+                    f"{m['preparation']:+.4f} | {m['combined']:+.4f} | "
+                    f"{m['interaction']:+.4f} |\n"
                 )
 
     report_path = os.path.join(OUTPUT_DIR, "report.html")
@@ -418,8 +519,8 @@ def write_reports(results):
         report.write(
             "<!doctype html><meta charset='utf-8'>"
             "<title>COMPASS evaluation</title><h1>COMPASS evaluation</h1>"
-            "<p>Four-quadrant ablation across scaled working sets and CXL "
-            "latencies.</p>"
+            "<p>2x2 factorial (preparation x delivery) across scaled "
+            "working sets and CXL latencies.</p>"
         )
         for chart in (
             "quadrant_breakdown.svg",
@@ -427,33 +528,71 @@ def write_reports(results):
         ):
             report.write(f"<h2>{html.escape(chart)}</h2><img src='{chart}'>")
         report.write("<h2>Speedup/latency charts</h2>")
-        for benchmark in BENCHMARKS:
+        for benchmark in benchmarks:
             chart = f"{benchmark['name']}_speedup_scaling.svg"
             report.write(f"<h3>{html.escape(benchmark['name'])}</h3>")
             report.write(f"<img src='{chart}'>")
 
 
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--force", action="store_true",
+                        help="rerun even if stats.txt exists")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print commands and exit; run/write nothing")
+    parser.add_argument("--latencies",
+                        help="comma-separated CXL latencies (default 40,80,120)")
+    parser.add_argument("--benchmarks",
+                        help="comma-separated benchmark names")
+    parser.add_argument(
+        "--k", type=int, choices=(1, 2, 4),
+        default=int(os.environ.get("META_ISA_PREP_K", DEFAULT_PREP_K)),
+        help="K segments for cells C/D (default 2, env META_ISA_PREP_K)",
+    )
+    return parser.parse_args(argv)
+
+
 def main():
-    force = "--force" in sys.argv
-    os.makedirs(M5OUT_BASE, exist_ok=True)
+    args = parse_args(sys.argv[1:])
+    benchmarks = BENCHMARKS
+    if args.benchmarks:
+        wanted = [n.strip() for n in args.benchmarks.split(",") if n.strip()]
+        known = {b["name"]: b for b in BENCHMARKS}
+        unknown = [n for n in wanted if n not in known]
+        if unknown:
+            sys.exit(f"Unknown benchmarks: {unknown}; known: {list(known)}")
+        benchmarks = [known[n] for n in wanted]
+    latencies = LATENCIES
+    if args.latencies:
+        latencies = [int(x) for x in args.latencies.split(",") if x.strip()]
+    prep_k = args.k
+
+    if not args.dry_run:
+        os.makedirs(M5OUT_BASE, exist_ok=True)
     results = []
-    for benchmark in BENCHMARKS:
+    for benchmark in benchmarks:
         for arm_name, arm in ARMS.items():
-            for latency in LATENCIES:
-                run_name = f"{benchmark['name']}_{arm_name}_lat{latency}"
+            for latency in latencies:
+                run_name = run_name_for(
+                    benchmark, arm_name, arm, latency, prep_k
+                )
                 run_dir = os.path.join(M5OUT_BASE, run_name)
                 stats_path = os.path.join(run_dir, "stats.txt")
-                os.makedirs(run_dir, exist_ok=True)
-                return_code = 0
-                stats = parse_stats(stats_path)
                 stats_missing = not os.path.isfile(
                     stats_path
                 ) or not os.path.getsize(stats_path)
-                if force or stats_missing:
+                command = command_for(benchmark, arm, latency, run_dir, prep_k)
+                if args.dry_run:
+                    tag = "run" if args.force or stats_missing else "cached"
+                    print(f"[{run_name}] ({tag}) " + " ".join(command))
+                    continue
+                os.makedirs(run_dir, exist_ok=True)
+                return_code = 0
+                stats = parse_stats(stats_path)
+                if args.force or stats_missing:
                     started = time.time()
                     return_code = run_command(
-                        command_for(benchmark, arm, latency, run_dir),
-                        os.path.join(run_dir, "run.log"),
+                        command, os.path.join(run_dir, "run.log")
                     )
                     print(
                         f"[{run_name}] return={return_code} "
@@ -465,6 +604,8 @@ def main():
                         "benchmark": benchmark["name"],
                         "arm": arm_name,
                         "arm_label": arm["label"],
+                        "cell": arm["cell"] or "",
+                        "prep_k": arm_k(arm, prep_k) if arm["cell"] else "",
                         "cxl_latency_cycles": latency,
                         "ipc": stats["ipc"],
                         "sim_seconds": stats["simSeconds"],
@@ -475,10 +616,16 @@ def main():
                         "prefetch_coverage": stats["coverage"],
                         "l3_demand_mshr_misses": stats["demandMshrMisses"],
                         "l3_overall_misses": stats["overallMisses"],
+                        "prep_segments_advanced": stats[
+                            "prepSegmentsAdvanced"
+                        ],
+                        "prep_blocked": stats["prepBlocked"],
                         "return_code": return_code,
                     }
                 )
-    write_reports(results)
+    if args.dry_run:
+        return
+    write_reports(results, benchmarks, latencies, prep_k)
     print(f"Saved evaluation outputs to {OUTPUT_DIR}")
 
 

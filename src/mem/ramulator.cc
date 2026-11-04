@@ -54,6 +54,8 @@ Ramulator::Ramulator(const RamulatorParams &p) : AbstractMemory(p),
         }
     }
  
+    // COMPASS Stage 1 horizon K, consumed by ramulator::Controller (key "prepK")
+    configs.update("prepK", p.prepK);
     configs.set_core_num(p.num_cpus);
     configs.set_tracefile_directory(p.output_dir);
 
