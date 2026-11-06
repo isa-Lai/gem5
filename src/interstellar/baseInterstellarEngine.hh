@@ -260,8 +260,13 @@ namespace gem5
         BaseInterstellarEngine(const BaseInterstellarEngineParams &p);
 			  virtual void   regProbeListeners()  override;
         virtual bool            interstellarFilterPkt(PacketPtr pkt) { return false; }
+        virtual uint32_t
+        getPrepK() const
+        {
+            return 1;
+        }
 
-			  void   startup()                    override;
+        void startup() override;
         void   regStats()                   override;
 		    void   processInstToExec   (const gem5::o3::DynInstConstPtr& dynInst);
 		    void   processInstExecuted (const gem5::o3::DynInstConstPtr& dynInst);

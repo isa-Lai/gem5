@@ -107,9 +107,9 @@ namespace gem5
                             descTable.setPrepK(k);
                         }
                         uint32_t
-                        getPrepK() const
+                        getPrepK() const override
                         {
-                            return prepK;
+                            return descTable.getPrepK();
                         }
                         void startup() override;
                         void regProbeListeners() override;

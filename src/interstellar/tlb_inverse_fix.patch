@@ -1,0 +1,43 @@
+--- a/src/interstellar/RiscvMetaISAEngine.cc
++++ b/src/interstellar/RiscvMetaISAEngine.cc
+@@ -845,25 +845,14 @@
+ 			Addr     reqVA = req->getVaddr();
+ 			uint64_t vpn = reqVA >> PageShift;
+
+-			Table1_Entry *pAssocStream = descTable.getStrEntByVARangeOpt(reqVA);
+-
+-			string message_stream  = "";
+-			//Only Add it to TLB Inverse if it is a valid stream
+-			if (pAssocStream != nullptr)
+-			{
+-				tlb_inverse[pfn] = vpn ;
+-				printf("TLB-1[%lx]=%lx\n",pfn,vpn);
+-				//Note that the message indicates the first stream that has this PFN
+-				//As PFN can be shared between more than one stream .
+-				message_stream  =  "First found to Lie in "+descNames[pAssocStream->entryCSRData.type]+" stream";
++			// FIXED: Populate TLB inverse for ALL addresses, not just stream addresses
++			// This removes the circular dependency that prevented iHWP from working
++			tlb_inverse[pfn] = vpn;
++
++			// Optional logging to track stream vs non-stream addresses
++			Table1_Entry *pAssocStream = descTable.getStrEntByVARangeOpt(reqVA);
++			if (pAssocStream != nullptr)
++			{
++				printf("TLB-1[%lx]=%lx (stream)\n",pfn,vpn);
+ 			}
+ 			else
+-			// If Not Direct Stream or Indirect Stream , It Can be pointer Chasing
++			// For pointer chasing streams, check if data matches
+ 			{
+
+ 				if(numRemPtrStreams>0)
+@@ -884,13 +873,13 @@
+ 						if(areEqual)
+ 						{
+ 							//Found match , This PFN belongs to pointer chasing stream
+-							tlb_inverse[pfn] = vpn;
+ 							printf("TLB-1[%lx]=%lx\n",pfn,vpn);
++							printf("TLB-1[%lx]=%lx (pointer chasing)\n",pfn,vpn);
+ 							DPRINTF(MetaISA_Ptr_Logic,"Found PFN %#lx (in TLB-1) belongs to Pointer Chasing stream at VA %#lx\n",pfn,reqVAddr);
+ 							break;
+ 						}
