@@ -514,12 +514,23 @@ def write_outputs(
                 f"{p['S_D/A']:.4f}x | {p['I']:+.4f} | "
                 f"{p['S_A/stock']:.3f}x |\n"
             )
+            print(
+                f"PERF|{p['benchmark']}|{p['latency']}|K={p['K']}"
+                f"|S_B/A={p['S_B/A']:.4f}|S_C/A={p['S_C/A']:.4f}"
+                f"|S_D/A={p['S_D/A']:.4f}|I={p['I']:+.4f}"
+                f"|A_vs_stock={p['S_A/stock']:.3f}"
+            )
         best = max(perf, key=lambda p: p["S_D/A"], default=None)
         if best:
             fh.write(
                 f"\nBest combined: {best['benchmark']}@"
                 f"{best['latency']} K={best['K']} "
                 f"S_D/A={best['S_D/A']:.4f}x\n"
+            )
+            print(
+                f"Best combined: {best['benchmark']}@"
+                f"{best['latency']} K={best['K']} "
+                f"S_D/A={best['S_D/A']:.4f}x"
             )
         any_gain = any(
             max(p["S_B/A"], p["S_C/A"], p["S_D/A"]) > GAIN_MIN for p in perf
@@ -528,6 +539,10 @@ def write_outputs(
             f"\nObservable improvement (> {100*(GAIN_MIN-1):.0f}% over A) "
             f"in at least one point: "
             f"**{'YES' if any_gain else 'NO'}**\n"
+        )
+        print(
+            f"Observable improvement (> {100*(GAIN_MIN-1):.0f}% over A) "
+            f"in at least one point: {'YES' if any_gain else 'NO'}"
         )
     return (
         csv_path,
