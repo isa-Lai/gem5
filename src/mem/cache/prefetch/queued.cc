@@ -220,6 +220,7 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
     for (AddrPriority& addr_prio : addresses) {
         const Addr orig_pf_addr = addr_prio.first;
         if (stopped) {
+            statsQueued.pfDroppedOther++;
             if (iHWPSrc)
                 releaseDroppedPrefetch(pkt, orig_pf_addr);
             continue;
@@ -252,6 +253,7 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
                 stopped = true;
             }
         } else {
+            statsQueued.pfDroppedPageCross++;
             DPRINTF(HWPrefetch, "Ignoring page crossing prefetch.\n");
             if (iHWPSrc)
                 releaseDroppedPrefetch(pkt, orig_pf_addr);
@@ -291,21 +293,34 @@ Queued::getPacket()
 
 Queued::QueuedStats::QueuedStats(statistics::Group *parent)
     : statistics::Group(parent),
-    ADD_STAT(pfIdentified, statistics::units::Count::get(),
-             "number of prefetch candidates identified"),
-    ADD_STAT(pfBufferHit, statistics::units::Count::get(),
-             "number of redundant prefetches already in prefetch queue"),
-    ADD_STAT(pfInCache, statistics::units::Count::get(),
-             "number of redundant prefetches already in cache/mshr dropped"),
-    ADD_STAT(pfRemovedDemand, statistics::units::Count::get(),
-             "number of prefetches dropped due to a demand for the same "
-             "address"),
-    ADD_STAT(pfRemovedFull, statistics::units::Count::get(),
-             "number of prefetches dropped due to prefetch queue size"),
-    ADD_STAT(pfSpanPage, statistics::units::Count::get(),
-             "number of prefetches that crossed the page"),
-    ADD_STAT(pfUsefulSpanPage, statistics::units::Count::get(),
-             "number of prefetches that is useful and crossed the page")
+      ADD_STAT(pfIdentified, statistics::units::Count::get(),
+               "number of prefetch candidates identified"),
+      ADD_STAT(pfBufferHit, statistics::units::Count::get(),
+               "number of redundant prefetches already in prefetch queue"),
+      ADD_STAT(pfInCache, statistics::units::Count::get(),
+               "number of redundant prefetches already in cache/mshr dropped"),
+      ADD_STAT(pfRemovedDemand, statistics::units::Count::get(),
+               "number of prefetches dropped due to a demand for the same "
+               "address"),
+      ADD_STAT(pfRemovedFull, statistics::units::Count::get(),
+               "number of prefetches dropped due to prefetch queue size"),
+      ADD_STAT(pfSpanPage, statistics::units::Count::get(),
+               "number of prefetches that crossed the page"),
+      ADD_STAT(pfUsefulSpanPage, statistics::units::Count::get(),
+               "number of prefetches that is useful and crossed the page"),
+      ADD_STAT(pfDroppedCacheRedundant, statistics::units::Count::get(),
+               "number of prefetch candidates dropped because the block is "
+               "already in cache"),
+      ADD_STAT(pfDroppedMSHRRedundant, statistics::units::Count::get(),
+               "number of prefetch candidates dropped because the block is "
+               "already in the miss queue or an identical candidate is "
+               "already queued"),
+      ADD_STAT(pfDroppedPageCross, statistics::units::Count::get(),
+               "number of prefetch candidates dropped for crossing the page "
+               "boundary"),
+      ADD_STAT(pfDroppedOther, statistics::units::Count::get(),
+               "number of prefetch candidates dropped for any other reason "
+               "(e.g., throttle limit reached)")
 {
 }
 
@@ -416,9 +431,11 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
 {
     if (queueFilter) {
         if (alreadyInQueue(pfq, new_pfi, priority)) {
+            statsQueued.pfDroppedMSHRRedundant++;
             return false;
         }
         if (alreadyInQueue(pfqMissingTranslation, new_pfi, priority)) {
+            statsQueued.pfDroppedMSHRRedundant++;
             return false;
         }
     }
@@ -460,6 +477,7 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
 
         // ContextID is needed for translation
         if (!pkt->req->hasContextId()) {
+            statsQueued.pfDroppedPageCross++;
             return false;
         }
         if (useVirtualAddresses) {
@@ -477,12 +495,18 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
         } else {
             // Using PA for training but the request does not have a VA,
             // unable to process this page crossing prefetch.
+            statsQueued.pfDroppedPageCross++;
             return false;
         }
     }
     if (has_target_pa && cacheSnoop &&
             (cache.inCache(target_paddr, new_pfi.isSecure()) ||
              cache.inMissQueue(target_paddr, new_pfi.isSecure()))) {
+        if (cache.inCache(target_paddr, new_pfi.isSecure())) {
+            statsQueued.pfDroppedCacheRedundant++;
+        } else {
+            statsQueued.pfDroppedMSHRRedundant++;
+        }
         statsQueued.pfInCache++;
         DPRINTF(HWPrefetch, "Dropping redundant in "
                 "cache/MSHR prefetch addr:%#x\n", target_paddr);
