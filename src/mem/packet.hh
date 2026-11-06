@@ -429,7 +429,10 @@ class Packet : public Printable, public Extensible<Packet>
     bool      is_iHWP_flag              ;
     // is it HWP
     bool      is_HWP_flag               ;
-    // is first Address in the stream (1 bit) -> needed for PreScheduled iBatch in MC
+    // COMPASS v2 cell B/D: interval-window preparation seed (is_HWP stays
+    // true; only the memory controller treats it as demand-class)
+    bool isCompassSeed_flag;
+    // is first Address in the stream (1 bit) -> needed for iBatch in MC
     bool      is_base_addr         ;
     //
     bool      invalidate_stream    ;
@@ -894,6 +897,11 @@ class Packet : public Printable, public Extensible<Packet>
     uint16_t  getMetaISAAccessFrequency()  { return metaISAAaccFrequency       ; } /* Used with direct stream*/
     bool      is_iHWP()                    { return is_iHWP_flag              ; }
     bool      is_HWP()                     { return is_HWP_flag               ; }
+    bool
+    isCompassSeed()
+    {
+        return isCompassSeed_flag;
+    }
     bool      getIsMetaISABaseAddr()  { return is_base_addr       ; }
     bool      getInvalidateStream()   { return invalidate_stream  ; }
     /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
@@ -941,6 +949,12 @@ class Packet : public Printable, public Extensible<Packet>
 
     void set_HWP(bool is_HWP_value)
     {   this->is_HWP_flag = is_HWP_value;}
+
+    void
+    setCompassSeed(bool isCompassSeed_value)
+    {
+        this->isCompassSeed_flag = isCompassSeed_value;
+    }
 
     /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 
@@ -1025,6 +1039,7 @@ class Packet : public Printable, public Extensible<Packet>
         this->metaISAStreamID       = NONE_STR_ID          ;
         this->is_iHWP_flag          = false                ;
         this->is_HWP_flag           = false                ;
+        this->isCompassSeed_flag = false;
         this->metaISAAaccFrequency  = 0                    ;
         this->metaISARequestorID    = INVALID_REQUESTOR_ID ;
 
@@ -1080,6 +1095,7 @@ class Packet : public Printable, public Extensible<Packet>
         this->metaISAStreamID       = NONE_STR_ID          ;
         this->is_iHWP_flag          = false                ;
         this->is_HWP_flag           = false                ;
+        this->isCompassSeed_flag = false;
         this->metaISAAaccFrequency  = 0                    ;
         this->metaISARequestorID    = INVALID_REQUESTOR_ID ;
 
@@ -1130,6 +1146,7 @@ class Packet : public Printable, public Extensible<Packet>
         this->nextAddr              = pkt->getNextAddr()               ;
         this->is_iHWP_flag          = pkt->is_iHWP()                   ;
         this->is_HWP_flag           = pkt->is_HWP()                    ;
+        this->isCompassSeed_flag = pkt->isCompassSeed();
         /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 
         if (!clear_flags)

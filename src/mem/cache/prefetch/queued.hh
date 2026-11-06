@@ -220,6 +220,16 @@ class Queued : public Base
     // dropped before being queued; lets iHWP free its internal buffer entry.
     virtual void releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr) {}
 
+    // COMPASS v2: called with the physical address a queued prefetch packet
+    // is created for; returns true (consuming the mark) if that address is a
+    // pending cell B/D preparation seed, so the caller can tag the packet as
+    // demand-class for the memory controller.
+    virtual bool
+    takeSeedAddr(Addr addr)
+    {
+        return false;
+    }
+
     PacketPtr getPacket() override;
 
     Tick nextPrefetchReadyTime() const override

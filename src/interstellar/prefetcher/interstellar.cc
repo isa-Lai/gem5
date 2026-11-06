@@ -85,19 +85,26 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
    return iHWP_work_parallel_to_Cache;
 }
 
- InterStellar::iStats::iStats(statistics::Group *parent)
+InterStellar::iStats::iStats(statistics::Group *parent)
     : statistics::Group(parent),
-    ADD_STAT(pfdemandHitinIbufferEarly, statistics::units::Count::get(),
-             "number of useful prefetches where demand requests hits in iHWP Buffer before creating MSHR"),
-    ADD_STAT(pfdemandMSHRHitinIbuffer, statistics::units::Count::get(),
-             "number of useful prefetches where demand requests that coleased in MSHR and later hits in iHWP Buffer"),
-    ADD_STAT(tot_req_iPrefteched, statistics::units::Count::get(),
-             "Number of generated interstellar hardware prefetches"),
-    ADD_STAT(tot_iHWP_full, statistics::units::Count::get(),
-             "Number of times iHWP got full"),
-    ADD_STAT(tot_iHWP_dropped, statistics::units::Count::get(),
-             "Number of iHWP buffer entries released because Queued dropped "
-             "the prefetch candidate")
+      ADD_STAT(pfdemandHitinIbufferEarly, statistics::units::Count::get(),
+               "number of useful prefetches where demand requests hits in "
+               "iHWP Buffer before creating MSHR"),
+      ADD_STAT(pfdemandMSHRHitinIbuffer, statistics::units::Count::get(),
+               "number of useful prefetches where demand requests that "
+               "coleased in MSHR and later hits in iHWP Buffer"),
+      ADD_STAT(tot_req_iPrefteched, statistics::units::Count::get(),
+               "Number of generated interstellar hardware prefetches"),
+      ADD_STAT(tot_iHWP_full, statistics::units::Count::get(),
+               "Number of times iHWP got full"),
+      ADD_STAT(tot_iHWP_dropped, statistics::units::Count::get(),
+               "Number of iHWP buffer entries released because Queued dropped "
+               "the prefetch candidate"),
+      ADD_STAT(
+          tot_compass_seeds, statistics::units::Count::get(),
+          "Number of cell B/D interval-window preparation seeds authorised "
+          "(first position of a new window, issued demand-class at the "
+          "memory controller)")
 {
 }
 
@@ -246,6 +253,26 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
                         iPrefetcherCacheBuffer->Push(
                             std::make_pair(iPrefetcherQkey, iPreftchQEnt));
                         pref_cnt++;
+
+                        // COMPASS v2 cell B/D preparation-seed charging:
+                        // offset 0 is the first authorised position of the
+                        // new window, i.e. the position whose demand miss
+                        // would have seeded iMC preparation in cell A. The
+                        // packet issued for it must reach the memory
+                        // controller as demand-class, so record its (block
+                        // aligned) address for the Queued issue path.
+                        // Page bound: never seed beyond the window's page.
+                        if (i == 0) {
+                            const Addr seedPageBase =
+                                interval.startAddr & ~PAGE_OFFSET_MASK;
+                            const Addr seedPageEnd =
+                                seedPageBase + (1ULL << PageShift);
+                            if (preftchedAddress < seedPageEnd) {
+                                pendingSeedAddrs.insert(preftchedAddress &
+                                                        ~(Addr)(blkSize - 1));
+                                ++stats_ihwp.tot_compass_seeds;
+                            }
+                        }
                     }
                 }
             }
@@ -492,6 +519,9 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
     Addr       reqAddress  = pkt->getAddr();
     uint8_t    streamID    = pkt->getMetaISAStreamID();
     uint32_t   requestorID = pkt->getMetaISARequestorID();
+    // A demand reaching this line squashes the queued candidate; drop a
+    // pending preparation-seed mark it may carry (it will never be issued).
+    pendingSeedAddrs.erase(reqAddress & ~(Addr)(blkSize - 1));
     IpreftecherQueueKey   iPrefetcherQkey(reqAddress,streamID, requestorID);
     if (iPrefetcherCacheBuffer->find(iPrefetcherQkey))
     {
@@ -521,29 +551,49 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
 
  }
 
+ bool
+ InterStellar::takeSeedAddr(Addr addr)
+ {
+     const Addr blkAddr = addr & ~(Addr)(blkSize - 1);
+     auto it = pendingSeedAddrs.find(blkAddr);
+     if (it == pendingSeedAddrs.end()) {
+         return false;
+     }
+     pendingSeedAddrs.erase(it);
+     DPRINTF(HWPrefetch,
+             "[CompassSeed] packet issued for seed addr %#x -> demand-class\n",
+             blkAddr);
+     return true;
+ }
 
  void
  InterStellar::releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr)
  {
-    // A candidate pushed into the iHWP buffer by calculatePrefetch() was
-    // dropped by Queued before reaching the prefetch queue (page crossing
-    // without MMU, already in cache/MSHR, throttled): free its entry,
-    // otherwise the buffer leaks until IsFull() disables prefetching.
-    IpreftecherQueueKey key(addr, pkt->getMetaISAStreamID(),
-                            pkt->getMetaISARequestorID());
-    if (!iPrefetcherCacheBuffer->find(key))
-        return;
-    const bool waiting = (*this->iPrefetcherCacheBuffer)[key].W != 0;
-    iPrefetcherCacheBuffer->delete_data(key);
-    if (cellMode == 'B' || cellMode == 'D') {
-        if (waiting && sReserved > 0) {
-            sReserved--;
-            sFree++;
-            if (creditsAvailable < creditsTotal)
-                creditsAvailable++;
-            assert(sFree + sReserved + sResident == sTotal);
-        }
-    }
+     // If the dropped candidate carried a pending preparation-seed mark,
+     // drop the mark too: no packet carrying it will be issued.
+     pendingSeedAddrs.erase(addr & ~(Addr)(blkSize - 1));
+
+     // A candidate pushed into the iHWP buffer by calculatePrefetch() was
+     // dropped by Queued before reaching the prefetch queue (page crossing
+     // without MMU, already in cache/MSHR, throttled): free its entry,
+     // otherwise the buffer leaks until IsFull() disables prefetching.
+     IpreftecherQueueKey key(addr, pkt->getMetaISAStreamID(),
+                             pkt->getMetaISARequestorID());
+     if (!iPrefetcherCacheBuffer->find(key)) {
+         return;
+     }
+     const bool waiting = (*this->iPrefetcherCacheBuffer)[key].W != 0;
+     iPrefetcherCacheBuffer->delete_data(key);
+     if (cellMode == 'B' || cellMode == 'D') {
+         if (waiting && sReserved > 0) {
+             sReserved--;
+             sFree++;
+             if (creditsAvailable < creditsTotal) {
+                 creditsAvailable++;
+             }
+             assert(sFree + sReserved + sResident == sTotal);
+         }
+     }
     ++stats_ihwp.tot_iHWP_dropped;
  }
 

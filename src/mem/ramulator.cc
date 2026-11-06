@@ -43,7 +43,7 @@ Ramulator::Ramulator(const RamulatorParams &p) : AbstractMemory(p),
     warmuptime    = p.real_warm_up ;
     last_req_tick =             0  ;
     // Abotaleb: Construct the intelligenet preftecher
-    iBatchAllocated        =   true;    
+    iBatchAllocated = true;
     channels     = stoi(configs["channels"], NULL, 0);
 
     for(int ch_id  = 0 ; ch_id  < channels  ; ch_id++ )
@@ -53,8 +53,8 @@ Ramulator::Ramulator(const RamulatorParams &p) : AbstractMemory(p),
             iBatchBuffer[ch_id][ba_ind] = new ramulator::circBuffer<ramulator::iBufferKeyClass, ramulator::IpreftecherQueueEntry>();
         }
     }
- 
-    // COMPASS Stage 1 horizon K, consumed by ramulator::Controller (key "prepK")
+
+    // COMPASS Stage 1 horizon K, consumed by Controller (key "prepK")
     configs.update("prepK", p.prepK);
     configs.set_core_num(p.num_cpus);
     configs.set_tracefile_directory(p.output_dir);
@@ -63,6 +63,11 @@ Ramulator::Ramulator(const RamulatorParams &p) : AbstractMemory(p),
     tot_Req_iBatched_Completed
         .name("Total_Requests_Completed_iBatch")
         .desc("Total Requests iBatched before and consumed (Completed by demand/HWP Request).")
+        .precision(0);
+
+    compass_seeds_arrived.name("compass_seeds_arrived")
+        .desc("COMPASS v2 cell B/D prep seeds accepted by the memory "
+              "controller (charged as demand-class).")
         .precision(0);
 
     iprefetches_completed_cnt_per_Stream
@@ -186,8 +191,7 @@ void Ramulator::sendResponse()
 void Ramulator::tick()
 {
     wrapper->tick();
-    
-    
+
     if (req_stall)
     {
         req_stall = false;
@@ -242,13 +246,14 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
 
 		for(int i = 0 ; i < num_cores ; i ++)
 		{
-			string mem_trace_path    =  truncatedPath+"/mem_" + to_string(i) +"_trace.in" ;		
-			master_trace << mem_trace_path <<endl;
-			mem_trace_file[i].open(mem_trace_path) ;
-		}
-		master_trace.close();
-		
-        begin_tick = curTick();
+                    string mem_trace_path =
+                        truncatedPath + "/mem_" + to_string(i) + "_trace.in";
+                    master_trace << mem_trace_path << endl;
+                    mem_trace_file[i].open(mem_trace_path);
+                }
+                master_trace.close();
+
+                begin_tick = curTick();
     }
 
     if (pkt->cacheResponding())
@@ -268,9 +273,6 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
             accessAndRespond(pkt);
             return true;
         }
-
-
- 
 
     /* ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       Abotaleb : Receiving info specifying Streams
@@ -293,22 +295,24 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
     DPRINTF(Ramulator, "Accepting Req of Addr=%#lx and Interstellar Requestor ID =%#lx - GEM5 Requestor ID=%#lx\n", pkt->getAddr(), pkt->getMetaISARequestorID(), pkt->requestorId());
 
     uint8_t  metaIsaStreamID     = pkt->getMetaISAStreamID()        ;
-    uint32_t metaIsaRequestorID  = pkt->getMetaISARequestorID()     ; 
+    uint32_t metaIsaRequestorID = pkt->getMetaISARequestorID();
 
     if(metaIsaRequestorID>num_cores)
 	{
-		//In case of such request recieved 
-		//printf("\t::Request from un-initalized source requestor ID is received(A:%#lx)(Tick:%ld)!\n",pkt->getAddr(),curTick());
-		metaIsaRequestorID=0;
-	}     
+        // In case of such request recieved
+        // printf("\t::Request from un-initalized source requestor ID "
+        //       "is received(A:%#lx)(Tick:%ld)!\n",
+        //       pkt->getAddr(),curTick());
+        metaIsaRequestorID = 0;
+    }
 
-    /******************** Ideal DRAM = To create memory request traces   **********************/    
+    /************* Ideal DRAM = To create memory request traces *************/
     // Ideal DRAM is used to generate the memory traces.
 	//is_ideal_mem = true ;
     if(is_ideal_mem)
     {
-		
-        // compute elapsed cycles since last request ; last_req_tick = 0 initally 
+
+        // compute elapsed cycles since last request ; last_req_tick = 0
         uint64_t cur_cycle = (curTick()/clockPeriod());
         uint64_t cpu_inst = cur_cycle- last_req_tick ;
         // produce memory_trace with the following format:
@@ -318,15 +322,19 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
         // respond to the request immediately [Zero Latency]
         accessAndRespond(pkt);
         return true;
-    }	
+    }
 
     int      coreid              = metaIsaRequestorID & COREID_MASK ;
-    uint16_t threadID            = metaIsaRequestorID >> 16         ;  
+    uint16_t threadID = metaIsaRequestorID >> 16;
     uint16_t stride              = pkt->getMetaISAStride()          ;
-    bool     is_demand           = !pkt->is_HWP()                   ;
+    // COMPASS v2 cell B/D: an interval-window preparation seed keeps
+    // is_HWP=true (cache-side iHWP accounting is unchanged) but must be
+    // charged at the memory controller as a demand-class arrival, exactly
+    // like the demand miss cell A would have produced at this position.
+    bool is_demand = !pkt->is_HWP() || pkt->isCompassSeed();
     bool     is_hwp              = pkt->is_HWP()                    ;
     bool     deactivate_stream   = pkt->getInvalidateStream()       ;
-    bool     is_base_addr        = pkt->getIsMetaISABaseAddr()      ; 
+    bool is_base_addr = pkt->getIsMetaISABaseAddr();
     /*vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 
     bool accepted = true , iPrefetcherAccepted = false;
@@ -337,21 +345,23 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
         // printf("Read Request - addr = %lu - nextaddr = %lu\n",pkt->getAddr(),pkt->getNextAddr());
         ramulator::Request req(pkt->getAddr(), pkt->getNextAddr(), ramulator::Request::Type::READ, read_cb_func, pkt->req->isPrefetch(), coreid); // daz3
         req.setMetaISAParams(metaIsaStreamType, metaIsaStreamID, metaIsaRequestorID)    ;
-        req.setiBatchParams ( stride , is_demand , is_hwp ,is_base_addr )               ;    
-        req.deactive_stream = deactivate_stream                                         ;
-        // ramulator::Request req(pkt->getAddr(), ramulator::Request::Type::READ, read_cb_func, 0);
-        
+        req.setiBatchParams(stride, is_demand, is_hwp, is_base_addr);
+        req.deactive_stream = deactivate_stream;
+        // ramulator::Request req(pkt->getAddr(),
+        //      ramulator::Request::Type::READ, read_cb_func, 0);
+        //      read_cb_func, 0);
+
         //@todo Update for MC with many channels: Assume single channel for now
-        for(int ch_id  = 0 ; ch_id  < channels  ; ch_id++ )
-        {        
+        for (int ch_id = 0; ch_id < channels; ch_id++) {
             wrapper->updatePrefetcher(ch_id, iBatchBuffer[ch_id]);
         }
-        /* 
-            Once iPrefetched Request is sent to Memory Controller 
+        /*
+            Once iPrefetched Request is sent to Memory Controller
             It will complete its request ( if data is ready)
             So reads queue should be updated before the sent in this case
-        */        
-        ramulator::iBufferKeyClass iPrefetcherQkey(req.addr, req.metaISAStreamID, req.metaISARequestorID);
+        */
+        ramulator::iBufferKeyClass iPrefetcherQkey(
+            req.addr, req.metaISAStreamID, req.metaISARequestorID);
         bool inIPDQ = false;
         for(int ch_id  = 0 ; ch_id  < channels  ; ch_id++ )
         {
@@ -368,12 +378,16 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
             // daz3
             my_read_cnt++;
             my_total_cnt++;
-        }    
+        }
         accepted            = wrapper->send(req);
         //printf("Ramulator Wrapper Accepted for read pkt %#lx = %d\n",pkt->getAddr(),accepted);
         // accepted = wrapper->send(req);
-        if(!inIPDQ)
-        {
+        if (accepted && pkt->isCompassSeed()) {
+            // Explicitly charged control message: cell B preparation seed
+            // that reached the memory controller.
+            compass_seeds_arrived++;
+        }
+        if (!inIPDQ) {
             if (accepted  )
             {
                 reads[req.addr].push_back(pkt);
@@ -394,7 +408,7 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
                 req_stall = true;
             }
         }
-        
+
     }
     else if (pkt->isWrite())
     {
@@ -404,10 +418,11 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
         // printf("Write Request - addr = %lu - nextaddr = %lu\n",pkt->getAddr(),pkt->getNextAddr());
         ramulator::Request req(pkt->getAddr(), pkt->getNextAddr(), ramulator::Request::Type::WRITE, write_cb_func, false, coreid);
         req.setMetaISAParams(metaIsaStreamType, metaIsaStreamID, metaIsaRequestorID)   ;
-        req.setiBatchParams ( stride , is_demand , is_hwp ,is_base_addr )              ;    
-        req.deactive_stream = deactivate_stream                                        ;  
+        req.setiBatchParams(stride, is_demand, is_hwp, is_base_addr);
+        req.deactive_stream = deactivate_stream;
 
-        //  ramulator::Request req(pkt->getAddr(), ramulator::Request::Type::WRITE, write_cb_func, false, 0);       
+        //  ramulator::Request req(pkt->getAddr(),
+        //      ramulator::Request::Type::WRITE, write_cb_func, false, 0);
         //@todo Update for MC with many channels: Assume single channel for now
         for(int ch_id  = 0 ; ch_id  < channels  ; ch_id++ )
         {
@@ -501,51 +516,57 @@ void Ramulator::readComplete(ramulator::Request &req , int bank_id)
     ramulator::iBufferKeyClass iPrefetcherQkey(req.addr, req.metaISAStreamID, req.metaISARequestorID);
     // respond if not exist in prefetcher queue or requested already
     int ch_idx = 0  ; // In all DRAM Standrads , Channel is at level 0 -> int(T::Level::Channel);
-    int ch_id  = req.addr_vec[ch_idx];  
-                                                     
-    bool inIPDQ =  this->iBatchBuffer[ch_id][bank_id]->find(iPrefetcherQkey)   ;
+    int ch_id = req.addr_vec[ch_idx];
+
+    bool inIPDQ = this->iBatchBuffer[ch_id][bank_id]->find(iPrefetcherQkey);
     bool inIPDQandRequested = false;
 
    if (inIPDQ)
     {
-        //iPrefetch Request is valid now 
-        (*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].W = 0;
-        // It will be valid data as this is the callback for ramulator finish of the read request
-        if ((*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].R == 1)
-        {
-            inIPDQandRequested = true;
-            iprefetches_completed_cnt_per_Stream[req.metaISAStreamID]++;
-            tot_Req_iBatched_Completed++;
-            // Remove from iBatch Queue    [Comment next line Assume Large iPref]
-            this->iBatchBuffer[ch_id][bank_id]->delete_data(iPrefetcherQkey);
-            //this->iBatchBuffer[bank_id]->DisplayIprefetchFull();
-            DPRINTF(IPREFETCHER, "Request  %#lx wait in iBatch is completed now!\n", req.addr);
-        }
-        
-        else
-        { // Request can be done before it is iPrefetched inside MC
-            if (reads.find(req.addr) != reads.end())
-            {
-                (*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].R = 1;
-                inIPDQandRequested = true;
-                iprefetches_completed_cnt_per_Stream[req.metaISAStreamID]++;
-                tot_Req_iBatched_Completed++;
-                (*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].R = 0; // Now not requested (Deleted)                
-                this->iBatchBuffer[ch_id][bank_id]->delete_data(iPrefetcherQkey);
-                //this->iBatchBuffer[bank_id]->DisplayIprefetchFull();
-                DPRINTF(IPREFETCHER, "Request at %#lx is iBatched , req before iBatch , it is completed now!\n", req.addr);
+       // iPrefetch Request is valid now
+       (*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].W = 0;
+       // It will be valid data as this is the callback for ramulator finish of
+       // the read request
+       if ((*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].R == 1) {
+           inIPDQandRequested = true;
+           iprefetches_completed_cnt_per_Stream[req.metaISAStreamID]++;
+           tot_Req_iBatched_Completed++;
+           // Remove from iBatch Queue    [Comment next line Assume Large
+           // iPref]
+           this->iBatchBuffer[ch_id][bank_id]->delete_data(iPrefetcherQkey);
+           // this->iBatchBuffer[bank_id]->DisplayIprefetchFull();
+           DPRINTF(IPREFETCHER,
+                   "Request  %#lx wait in iBatch is completed now!\n",
+                   req.addr);
+       }
 
-                // But this means that the related address is already put in reads Ramulator queue and will be scheduled for unnecassary future command (need to be removed from there)
-            }
-        }
-        
-    }
-    else // not in inIPDQ and not in reads -> overwritten iPrefetch 
-        if(reads.find(req.addr)==reads.end())
-        {
-            iprefetches_wasted_per_Stream[req.metaISAStreamID]++;
-            return;
-        }
+       else { // Request can be done before it is iPrefetched inside MC
+           if (reads.find(req.addr) != reads.end()) {
+               (*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].R = 1;
+               inIPDQandRequested = true;
+               iprefetches_completed_cnt_per_Stream[req.metaISAStreamID]++;
+               tot_Req_iBatched_Completed++;
+               // Now not requested (Deleted)
+               (*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].R = 0;
+               this->iBatchBuffer[ch_id][bank_id]->delete_data(
+                   iPrefetcherQkey);
+               // this->iBatchBuffer[bank_id]->DisplayIprefetchFull();
+               DPRINTF(IPREFETCHER,
+                       "Request at %#lx is iBatched , req "
+                       "before iBatch , it is completed now!\n",
+                       req.addr);
+
+               // But this means that the related address is already put in
+               // reads Ramulator queue and will be scheduled for unnecassary
+               // future command (need to be removed from there)
+           }
+       }
+
+   } else // not in inIPDQ and not in reads -> overwritten iPrefetch
+       if (reads.find(req.addr) == reads.end()) {
+           iprefetches_wasted_per_Stream[req.metaISAStreamID]++;
+           return;
+       }
     if (!inIPDQ || inIPDQandRequested)
     {
 
@@ -562,11 +583,9 @@ void Ramulator::readComplete(ramulator::Request &req , int bank_id)
                 reads.erase(req.addr);
             // added counter to track requests in flight
             --requestsInFlight;
-            accessAndRespond(pkt);                
-        }    
-
+            accessAndRespond(pkt);
+        }
     }
-     
 }
 
 void Ramulator::writeComplete(ramulator::Request &req , int bank_id)

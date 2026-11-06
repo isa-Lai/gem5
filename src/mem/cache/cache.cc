@@ -553,6 +553,7 @@ Cache::createMissPacket(PacketPtr cpu_pkt, CacheBlk *blk,
     PacketPtr pkt = new Packet(cpu_pkt->req, cmd, blkSize);
     pkt->setMetaISARequestorID(cpu_pkt->getMetaISARequestorID());
     pkt->set_HWP(cpu_pkt->is_HWP());
+    pkt->setCompassSeed(cpu_pkt->isCompassSeed());
     pkt->set_iHWP(cpu_pkt->is_iHWP());
     pkt->setMetaISAStreamID(cpu_pkt->getMetaISAStreamID());
     pkt->setMetaISAStreamType(cpu_pkt->getMetaISAStreamType());

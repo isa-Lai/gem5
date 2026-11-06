@@ -392,29 +392,36 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                 assert(pkt->req->requestorId() < system->maxRequestors());
                 stats.cmdStats(pkt).mshrHits[pkt->req->requestorId()]++;
 
-                //mark iHWP entry as requested 
+                // mark iHWP entry as requested
                 if (prefetcher)
                 {
                     if(prefetcher->isIntelligentHWP())
                     {
                         if(prefetcher->hitIniHWP(pkt))
                         {
-                            //demand coalesced with iHWP
-                            //either update entry in iHWP as requested if data is not valid and return false 
-                            // or get then delete entry from iHWP and respond if the data is valid and return true  
-                            if(pkt->cmd==MemCmd::InvalidateReq)//If this is an invalidation, the read line should be deleted from iHWP
-                            {
-                                DPRINTF(Cache, "Invalidate Hit on iHWP, delete the entry and return!\n");
+                            // demand coalesced with iHWP
+                            // either update entry in iHWP as requested if data
+                            //  is not valid and return false
+                            //  or get then delete entry from iHWP and respond
+                            //  if the data is valid and return true
+                            //  If this is an invalidation, the read line
+                            //  should be deleted from iHWP
+                            if (pkt->cmd == MemCmd::InvalidateReq) {
+                                DPRINTF(Cache,
+                                        "Invalidate Hit on iHWP, "
+                                        "delete the entry and return!\n");
                                 prefetcher->deleteiHWPEntry(pkt);
-                            }
-                            else 
-                            {
-                                if(prefetcher->updateiHWPEntry(pkt,blk))
-                                {
-                                    prefetcher->pfiHitsPerStreamPerCore(pkt->getMetaISARequestorID(),pkt->getMetaISAStreamID());
-                                    DPRINTF(Cache, "Hit on iHWP for addr %#x (%s)\n",
-                                            pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
-                                    ppHitiHWP->notify(CacheAccessProbeArg(pkt,accessor));        
+                            } else {
+                                if (prefetcher->updateiHWPEntry(pkt, blk)) {
+                                    prefetcher->pfiHitsPerStreamPerCore(
+                                        pkt->getMetaISARequestorID(),
+                                        pkt->getMetaISAStreamID());
+                                    DPRINTF(Cache,
+                                            "Hit on iHWP for addr %#x (%s)\n",
+                                            pkt->getAddr(),
+                                            pkt->isSecure() ? "s" : "ns");
+                                    ppHitiHWP->notify(
+                                        CacheAccessProbeArg(pkt, accessor));
                                     blk->clearPrefetched();
                                     DPRINTF(Cache, "Value of is_iHWP_work_parallel_to_Cache = %d\n", prefetcher->is_iHWP_work_parallel_to_Cache());
                                     if(prefetcher->is_iHWP_work_parallel_to_Cache())
@@ -424,12 +431,12 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                                         request_time = request_time-cyclesToTicks(deduceLat);
                                     }
                                     handleTimingReqHit(pkt, blk, request_time);
-                                    return; 
-                                }
-                                else
-                                {
-                                    DPRINTF(Cache, "Miss on iHWP for addr %#x (%s)\n",
-                                        pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
+                                    return;
+                                } else {
+                                    DPRINTF(Cache,
+                                            "Miss on iHWP for addr %#x (%s)\n",
+                                            pkt->getAddr(),
+                                            pkt->isSecure() ? "s" : "ns");
                                 }
                             }
                         }
@@ -438,7 +445,7 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                             DPRINTF(Cache, "Not on iHWP for addr %#x (%s)\n",
                                     pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
                             prefetcher->incrDemandMhsrMisses();
-                        }                            
+                        }
                     }
                 }
 
@@ -493,8 +500,10 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                                 prefetcher->pfiHitsPerStreamPerCore(pkt->getMetaISARequestorID(),pkt->getMetaISAStreamID());
                                 DPRINTF(Cache, "Hit on iHWP for addr %#x (%s)\n",
                                             pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
-                                // The probe is needed to update the prefetcher stats            
-                                ppHitiHWP->notify(CacheAccessProbeArg(pkt,accessor));
+                                // The probe is needed to update the
+                                // prefetcher stats
+                                ppHitiHWP->notify(
+                                    CacheAccessProbeArg(pkt, accessor));
                                 blk->clearPrefetched();
                                 DPRINTF(Cache, "Value of is_iHWP_work_parallel_to_Cache = %d\n", prefetcher->is_iHWP_work_parallel_to_Cache());
                                 if(prefetcher->is_iHWP_work_parallel_to_Cache())
@@ -502,17 +511,18 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                                     DPRINTF(Cache, "Latency reduction in iHWP Hit\n");
                                     Cycles deduceLat =  lookupLatency-prefetcher->get_iHWP_data_latency();
                                     request_time = request_time-cyclesToTicks(deduceLat);
-                                }                        
+                                }
                                 handleTimingReqHit(pkt, blk, request_time);
-                                // Don't create miss packet as it hits 
-                                return; 
+                                // Don't create miss packet as it hits
+                                return;
                             }
                             else
                             {
                                 DPRINTF(Cache, "Miss on iHWP for addr %#x (%s)\n",
                                             pkt->getAddr(), pkt->isSecure() ? "s" : "ns");
-                                // You should create miss packet 
-                                // note MSHR is not created for iHWP (which means that the iHWP will be squashed)            
+                                // You should create miss packet
+                                // note MSHR is not created for iHWP (which
+                                // means that the iHWP will be squashed)
                                 if (pkt->isDemand())
                                     prefetcher->incrDemandMhsrMisses();
                             }
@@ -718,10 +728,10 @@ BaseCache::recvTimingResp(PacketPtr pkt)
             // Special handling: don't fill the cache [if the entry is not overwritten]
             // Send the response to internal iHWP buffer
             CacheBlk *blk = nullptr;
-            DPRINTF(Cache, "Handle Fill iHWP for A:%lx\n",pkt->getAddr());          
+            DPRINTF(Cache, "Handle Fill iHWP for A:%lx\n", pkt->getAddr());
             blk = handleFilliHWP(pkt, blk);
             if(prefetcher->handleFill(pkt,blk))
-                is_iWHP_handled= true ;        
+                is_iWHP_handled = true;
         }
         if(!is_iWHP_handled)
         {
@@ -2102,6 +2112,7 @@ BaseCache::sendMSHRQueuePacket(MSHR* mshr)
         pkt = new Packet(tgt_pkt, false, true);
         pkt->setMetaISARequestorID(tgt_pkt->getMetaISARequestorID());
         pkt->set_HWP(tgt_pkt->is_HWP());
+        pkt->setCompassSeed(tgt_pkt->isCompassSeed());
         pkt->set_iHWP(tgt_pkt->is_iHWP());
         pkt->setMetaISAStreamID(tgt_pkt->getMetaISAStreamID());
         pkt->setMetaISAStreamType(tgt_pkt->getMetaISAStreamType());
@@ -2962,7 +2973,7 @@ BaseCache::handleFilliHWP(PacketPtr pkt, CacheBlk *blk)
     blk->setWhenReady(clockEdge(fillLatency) + pkt->headerDelay +
                       pkt->payloadDelay);
 
-    return blk;     
+    return blk;
 }
 
 } // namespace gem5

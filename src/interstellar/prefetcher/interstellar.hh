@@ -9,31 +9,31 @@
  #define __MEM_CACHE_PREFETCH_INTERSTELLAR_HH__
 
  #include <string>
- #include <unordered_map>
- #include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
- #include "interstellar/baseInterstellarEngine.hh"
- #include "interstellar/RiscvMetaISAEngine.hh"
- #include "base/cache/associative_cache.hh"
- #include "base/sat_counter.hh"
- #include "base/types.hh"
- #include "mem/cache/prefetch/queued.hh"
- #include "mem/cache/replacement_policies/replaceable_entry.hh"
- #include "mem/cache/tags/indexing_policies/set_associative.hh"
- #include "mem/cache/tags/tagged_entry.hh"
- #include "mem/packet.hh"
- #include "params/InterStellarPrefetcherHashedSetAssociative.hh"
- #include "interstellar/base_metaisa.hpp"
- #include "interstellar/prefetcher/IDirStreamBuffer.h"
- #include "interstellar/prefetcher/iPrefetcherCircBuffer.h"
+#include "base/cache/associative_cache.hh"
+#include "base/sat_counter.hh"
+#include "base/types.hh"
+#include "interstellar/RiscvMetaISAEngine.hh"
+#include "interstellar/baseInterstellarEngine.hh"
+#include "interstellar/prefetcher/IDirStreamBuffer.h"
+#include "interstellar/prefetcher/iPrefetcherCircBuffer.h"
+#include "mem/cache/prefetch/queued.hh"
+#include "mem/cache/replacement_policies/replaceable_entry.hh"
+#include "mem/cache/tags/indexing_policies/set_associative.hh"
+#include "mem/cache/tags/tagged_entry.hh"
+#include "mem/packet.hh"
+#include "params/InterStellarPrefetcherHashedSetAssociative.hh"
 
- namespace gem5
- {
+namespace gem5
+{
 
- namespace replacement_policy
- {
-     class Base;
- }
+namespace replacement_policy
+{
+class Base;
+}
  struct InterStellarPrefetcherParams;
 
  namespace prefetch
@@ -70,6 +70,7 @@
         statistics::Scalar tot_req_iPrefteched;
         statistics::Scalar tot_iHWP_full;
         statistics::Scalar tot_iHWP_dropped;
+        statistics::Scalar tot_compass_seeds;
     } stats_ihwp;
       /**
       * The latency of data access of an iHWP. It occurs when there is
@@ -179,6 +180,14 @@
 
      std::unordered_map<uint64_t, IntervalDescriptor> intervalTable;
 
+     /* COMPASS v2 cell B/D: block addresses authorised at offset 0 of a new
+      * interval window whose issued packet must be charged at the memory
+      * controller as demand-class (preparation seed). An address is consumed
+      * when the prefetch packet carrying it is created (takeSeedAddr) or
+      * dropped before issue (releaseDroppedPrefetch / squashInternalBuffer).
+      */
+     std::unordered_set<Addr> pendingSeedAddrs;
+
      uint32_t sTotal;
      uint32_t sFree;
      uint32_t sReserved;
@@ -205,6 +214,15 @@
      bool squashInternalBuffer(const PacketPtr &pkt) override;
      void releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr) override;
 
+     /**
+      * COMPASS v2 cell B/D preparation-seed charging: returns (and
+      * consumes) the seed marker of a pending interval-window seed
+      * address. Called when Queued creates the packet for this address,
+      * so the caller can tag it demand-class for the memory controller
+      * while keeping its is_HWP identity for all cache-side accounting.
+      */
+     bool takeSeedAddr(Addr addr) override;
+
      bool handleFill(const PacketPtr &pkt ,  CacheBlk *blk) override;
 
      bool  isIntelligentHWP()  override
@@ -222,4 +240,4 @@
  } // namespace prefetch
  } // namespace gem5
 
- #endif // __MEM_CACHE_PREFETCH_INTERSTELLAR_HH__
+#endif // __MEM_CACHE_PREFETCH_INTERSTELLAR_HH__

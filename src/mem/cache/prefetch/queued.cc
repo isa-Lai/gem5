@@ -520,6 +520,12 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
         dpp.createPkt(target_paddr, blkSize, requestorId, tagPrefetch,
                       pf_time);
         dpp.pkt->set_HWP(true);
+        // COMPASS v2 cell B/D: a pending preparation-seed address keeps its
+        // HWP identity, but its packet is additionally tagged so the memory
+        // controller charges it as a demand-class arrival (iBatch seeding).
+        if (takeSeedAddr(target_paddr)) {
+            dpp.pkt->setCompassSeed(true);
+        }
         dpp.pkt->set_iHWP(iHWPSrc);
         dpp.pkt->setMetaISARequestorID(pkt->getMetaISARequestorID());
         DPRINTF(HWPrefetch, "Prefetch queued. "

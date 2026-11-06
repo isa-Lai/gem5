@@ -24,8 +24,8 @@ using namespace gem5::memory;
 
 
 #define MAX_BANKS          16           // Maximum number of banks in DRAM Channel -> may be better to have crntRowReqsCount as pointer and allocate the size inside controller constructor
-#define MAX_CHANNELS       256 
-#define MAX_BANKS_DDR4     16 
+#define MAX_CHANNELS 256
+#define MAX_BANKS_DDR4 16
 
 class Ramulator : public gem5::memory::AbstractMemory {
 private:
@@ -43,7 +43,7 @@ private:
             // assert(false && "only accepts functional or timing packets");
             return mem.recvAtomic(pkt);
         }
-        
+
         void recvFunctional(PacketPtr pkt) {
             mem.recvFunctional(pkt);
         }
@@ -79,16 +79,16 @@ private:
     bool     resp_stall     ;
     bool     req_stall      ;
     bool     is_ideal_mem   ;
-    uint64_t last_req_tick  ; 
+    uint64_t last_req_tick;
     int      channels       ; // To support multi-channels InterStellar
     // gagan :
     Tick warmuptime;
     ofstream mem_trace_file[8]; // Memory traces for 8 cores s
     unsigned int numOutstanding() const { return requestsInFlight + resp_queue.size(); }
-    
+
     void sendResponse();
     void tick();
-    
+
     EventWrapper<Ramulator, &Ramulator::sendResponse> send_resp_event;
     EventWrapper<Ramulator, &Ramulator::tick> tick_event;
 
@@ -98,8 +98,8 @@ public:
     virtual void init();
     virtual void startup();
     DrainState drain() override;
-    virtual Port& getPort(const std::string& if_name, 
-        PortID idx = InvalidPortID);
+    virtual Port &getPort(const std::string &if_name,
+                          PortID idx = InvalidPortID);
     ~Ramulator();
 
 protected:
@@ -110,11 +110,15 @@ protected:
     void accessAndRespond(PacketPtr pkt);
     void readComplete(ramulator::Request& req,int bank_id);
     void writeComplete(ramulator::Request& req,int bank_id);
-    //Aotaleb: Intelligent Prefetcher 
-    ramulator::circBuffer<ramulator::iBufferKeyClass, ramulator::IpreftecherQueueEntry>* iBatchBuffer[MAX_CHANNELS][MAX_BANKS];
-    bool         iBatchAllocated; 
+    // Aotaleb: Intelligent Prefetcher
+    ramulator::circBuffer<ramulator::iBufferKeyClass,
+                          ramulator::IpreftecherQueueEntry>
+        *iBatchBuffer[MAX_CHANNELS][MAX_BANKS];
+    bool iBatchAllocated;
 
-    ramulator::ScalarStat tot_Req_iBatched_Completed ;   
+    ramulator::ScalarStat tot_Req_iBatched_Completed;
+    // COMPASS v2 cell B/D: preparation seeds charged as demand-class at the MC
+    ramulator::ScalarStat compass_seeds_arrived;
     ramulator::VectorStat iprefetches_completed_cnt_per_Stream;
     ramulator::VectorStat iprefetches_wasted_per_Stream;
 
