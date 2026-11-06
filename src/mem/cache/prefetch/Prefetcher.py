@@ -821,6 +821,14 @@ class InterStellarPrefetcher(QueuedPrefetcher):
     credits = Param.Unsigned(16, "Transport credits C (8, 16, 32, 64)")
     cellMode = Param.String("A", "COMPASS v2 Cell Mode (A, B, C, or D)")
 
+    # The RISC-V SE platform runs 64MiB superpages (arch/riscv/page_size.hh
+    # PageShift = 26). "Same page" for the prefetcher's page-crossing guard
+    # must use the virtual-memory page granularity, not the default 4KiB,
+    # or stream candidates that merely cross a 4KiB chunk boundary are
+    # wrongly dropped (page-bounded interval delivery per COMPASS v2 is
+    # bounded by srTLB-mapped VM pages).
+    page_bytes = "64MiB"
+
     confidence_counter_bits = Param.Unsigned(
         3, "Number of bits of the confidence counter"
     )
