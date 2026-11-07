@@ -35,7 +35,9 @@ namespace gem5
         // #define PAGE_OFFSET_MASK   (( 1uL << PageShift)-1)
         #define MAX_BANKS          16           // Maximum number of banks in DRAM Channel -> may be better to have crntRowReqsCount as pointer and allocate the size inside controller constructor
         #define MAX_BANKS_DDR4     16
-        #define TOT_STREAMS_CORES  1600+1  //# assumes max 16  cores
+        // NOTE: no TOT_STREAMS_CORES macro here; mem/cache/prefetch/base.hh
+        // declares a const of the same name and the old "1600+1" macro broke
+        // any translation unit including this header before it.
 
         typedef struct iDirStreamEntry
         {
