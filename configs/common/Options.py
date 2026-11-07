@@ -435,7 +435,7 @@ def addCommonOptions(parser, default_isa: ISA | None = None):
         "--meta-isa-interval-w",
         type=int,
         default=16,
-        choices=[8, 16, 32, 64],
+        choices=[2, 4, 8, 16, 32, 64],
         help="Stage 2 Interval Delivery Window W_del",
     )
     parser.add_argument(

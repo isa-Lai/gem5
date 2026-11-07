@@ -816,7 +816,7 @@ class InterStellarPrefetcher(QueuedPrefetcher):
     on_inst = False
 
     intervalW = Param.Unsigned(
-        16, "Interval delivery window W_del (8, 16, 32, 64)"
+        16, "Interval delivery window W_del (2, 4, 8, 16, 32, 64)"
     )
     credits = Param.Unsigned(16, "Transport credits C (8, 16, 32, 64)")
     cellMode = Param.String("A", "COMPASS v2 Cell Mode (A, B, C, or D)")
