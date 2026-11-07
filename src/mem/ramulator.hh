@@ -27,6 +27,11 @@ using namespace gem5::memory;
 #define MAX_CHANNELS 256
 #define MAX_BANKS_DDR4 16
 
+namespace gem5
+{
+class BaseCache;
+}
+
 class Ramulator : public gem5::memory::AbstractMemory {
 private:
 
@@ -81,6 +86,7 @@ private:
     bool     is_ideal_mem   ;
     uint64_t last_req_tick;
     int      channels       ; // To support multi-channels InterStellar
+    gem5::BaseCache *l3_cache;
     // gagan :
     Tick warmuptime;
     ofstream mem_trace_file[8]; // Memory traces for 8 cores s
@@ -121,7 +127,7 @@ protected:
     ramulator::ScalarStat compass_seeds_arrived;
     ramulator::VectorStat iprefetches_completed_cnt_per_Stream;
     ramulator::VectorStat iprefetches_wasted_per_Stream;
-
+    ramulator::ScalarStat blocked_while_ready_at_iMC;
 };
 
 //} // namespace memory

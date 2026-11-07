@@ -66,6 +66,35 @@ OUTPUT_DIR = os.path.normpath(
 )
 RUN_ROOT = os.path.join(OUTPUT_DIR, "verify_runs")
 
+
+def resolve_bin(bench):
+    """Resolve binary path relative to GEM5_ROOT with fallbacks."""
+    info = globals().get("BENCHMARKS", {}).get(bench, {})
+    candidates = []
+    if "bin" in info and info["bin"]:
+        candidates.append(info["bin"])
+    candidates.append(f"BMs/Polybench/{bench}/build/EXP/{bench}_exp.riscv")
+    candidates.append(f"BM/{bench}/build/EXP/{bench}_exp.riscv")
+    candidates.append(f"BM/{bench}/{bench}.riscv")
+    candidates.append(f"BMs/Polybench/{bench}/{bench}.riscv")
+
+    for rel in candidates:
+        if os.path.isfile(os.path.join(GEM5_ROOT, rel)):
+            return rel
+
+    for sub in ("BMs/Polybench", "BM"):
+        base = os.path.join(GEM5_ROOT, sub, bench)
+        if os.path.isdir(base):
+            for root, _, files in os.walk(base):
+                for f in sorted(files):
+                    if f.endswith(".riscv"):
+                        return os.path.relpath(
+                            os.path.join(root, f), GEM5_ROOT
+                        )
+
+    return info.get("bin", candidates[0])
+
+
 # profile -> per benchmark (options, maxinsts)
 BENCHMARKS = {
     # Custom COMPASS BM kernels (pass problem size in options)
@@ -80,7 +109,7 @@ BENCHMARKS = {
         "src": "BM/kv_cache/kv_cache.c",
         "bin": "BM/kv_cache/build/EXP/kv_cache_exp.riscv",
         "quick": ("8192", "20000000"),
-        "full": ("65536", "100000000"),
+        "full": ("65536", "130000000"),
         "must_prep": True,
     },
     "dlrm_gather": {
@@ -93,16 +122,16 @@ BENCHMARKS = {
     # Prioritized PolyBench EXP kernels (no cli options; size compiled-in)
     "atax": {
         "src": "BMs/Polybench/atax/src/atax_v2.c",
-        "bin": "BMs/Polybench/atax/build/EXP/atax_exp.riscv",
+        "bin": resolve_bin("atax"),
         "quick": (" ", "20000000"),
-        "full": (" ", "120000000"),
+        "full": (" ", "200000000"),
         "must_prep": True,
     },
     "bicg": {
         "src": "BMs/Polybench/bicg/src/bicg_v2.c",
-        "bin": "BMs/Polybench/bicg/build/EXP/bicg_exp.riscv",
+        "bin": resolve_bin("bicg"),
         "quick": (" ", "20000000"),
-        "full": (" ", "120000000"),
+        "full": (" ", "200000000"),
         "must_prep": True,
     },
     "ddot": {
@@ -128,9 +157,9 @@ BENCHMARKS = {
     },
     "gemver": {
         "src": "BMs/Polybench/gemver/src/gemver_v2.c",
-        "bin": "BMs/Polybench/gemver/build/EXP/gemver_exp.riscv",
+        "bin": resolve_bin("gemver"),
         "quick": (" ", "20000000"),
-        "full": (" ", "100000000"),
+        "full": (" ", "200000000"),
         "must_prep": True,
     },
     "mvt": {
@@ -142,9 +171,9 @@ BENCHMARKS = {
     },
     "jacobi-2d": {
         "src": "BMs/Polybench/jacobi-2d/src/jacobi-2d_v2.c",
-        "bin": "BMs/Polybench/jacobi-2d/build/EXP/jacobi-2d_exp.riscv",
+        "bin": resolve_bin("jacobi-2d"),
         "quick": (" ", "20000000"),
-        "full": (" ", "100000000"),
+        "full": (" ", "200000000"),
         "must_prep": True,
     },
     # Additional PolyBench v2 kernels
@@ -291,6 +320,7 @@ BENCHMARKS = {
 }
 
 DEFAULT_BENCHMARKS = ["daxpy_large", "kv_cache", "dlrm_gather"]
+HELDOUT_BENCHMARKS = ["jacobi-2d", "gemver", "bicg"]
 EXP1_BENCHMARKS = [
     "daxpy_large",
     "kv_cache",
@@ -305,52 +335,52 @@ EXP1_BENCHMARKS = [
     "jacobi-2d",
 ]
 
-
-def resolve_bin(bench):
-    """Resolve binary path relative to GEM5_ROOT with fallbacks."""
-    info = BENCHMARKS.get(bench, {})
-    candidates = []
-    if "bin" in info and info["bin"]:
-        candidates.append(info["bin"])
-    candidates.append(f"BMs/Polybench/{bench}/build/EXP/{bench}_exp.riscv")
-    candidates.append(f"BM/{bench}/build/EXP/{bench}_exp.riscv")
-    candidates.append(f"BM/{bench}/{bench}.riscv")
-    candidates.append(f"BMs/Polybench/{bench}/{bench}.riscv")
-
-    for rel in candidates:
-        if os.path.isfile(os.path.join(GEM5_ROOT, rel)):
-            return rel
-
-    for sub in ("BMs/Polybench", "BM"):
-        base = os.path.join(GEM5_ROOT, sub, bench)
-        if os.path.isdir(base):
-            for root, _, files in os.walk(base):
-                for f in sorted(files):
-                    if f.endswith(".riscv"):
-                        return os.path.relpath(os.path.join(root, f), GEM5_ROOT)
-
-    return info.get("bin", candidates[0])
-
 CUR_PROFILE = "quick"
 GAIN_MIN = 1.02  # >2% speedup over cell A counts as observable
 INTERVAL_W = 16
 CREDITS = 16
+NUM_CPUS = 1
+MEM_CHANNELS = None
+L3_MSHRS = None
+INCLUDE_SOTA = False
+INCLUDE_UNCOORD = False
 CFG_IPP = "configs/ramulator/DDR4-config-Gen.cfg"
 CFG_NOIPP = "configs/ramulator/DDR4-config-Gen-noIPP.cfg"
+CFG_IPP_2CH = "configs/ramulator/DDR4-config-Gen-2ch.cfg"
+CFG_NOIPP_2CH = "configs/ramulator/DDR4-config-Gen-2ch-noIPP.cfg"
 
 
-def arms_for(ks):
-    """Return ordered list of (arm_name, cell, k, ipp_cfg, prefetch)."""
+def arms_for(ks, include_sota=None, include_uncoord=None):
+    """Return ordered list of (arm_name, cell, k, ipp_cfg, prefetch, hwp_type)."""
+    if include_sota is None:
+        include_sota = INCLUDE_SOTA
+    if include_uncoord is None:
+        include_uncoord = INCLUDE_UNCOORD
+
     arms = [
-        ("stock", None, 1, False, False),
-        ("ipp", None, 1, True, False),
-        ("prefetch", None, 1, False, True),
-        ("A", "A", 1, True, True),
-        ("B", "B", 1, True, True),
+        ("stock", None, 1, False, False, None),
+        ("ipp", None, 1, True, False, None),
+        ("prefetch", None, 1, False, True, None),
     ]
+    if include_sota:
+        arms.extend(
+            [
+                ("stride", None, 1, False, False, "StridePrefetcher"),
+                ("bop", None, 1, False, False, "BOPPrefetcher"),
+                ("sms", None, 1, False, False, "SmsPrefetcher"),
+            ]
+        )
+    if include_uncoord:
+        arms.append(("iPF_noCoord", None, 1, True, True, None))
+    arms.extend(
+        [
+            ("A", "A", 1, True, True, None),
+            ("B", "B", 1, True, True, None),
+        ]
+    )
     for cell in ("C", "D"):
         for k in sorted(set([1] + ks)):
-            arms.append((f"{cell}_k{k}", cell, k, True, True))
+            arms.append((f"{cell}_k{k}", cell, k, True, True, None))
     return arms
 
 
@@ -358,13 +388,52 @@ def run_dir(bench, lat, arm):
     return os.path.join(RUN_ROOT, f"{bench}_lat{lat}_{arm}")
 
 
-def build_command(bench, profile, lat, arm, outdir):
-    _, cell, k, ipp, prefetch = arm
-    options, maxinsts = BENCHMARKS[bench][profile]
+def build_command(
+    bench,
+    profile,
+    lat,
+    arm,
+    outdir,
+    args=None,
+    num_cpus=None,
+    mem_channels=None,
+    l3_mshrs=None,
+):
+    if args is not None:
+        num_cpus = getattr(args, "num_cpus", 1)
+        l3_mshrs = getattr(args, "l3_mshrs", None)
+        mem_channels = getattr(args, "mem_channels", None)
+    else:
+        if num_cpus is None:
+            num_cpus = NUM_CPUS
+        if l3_mshrs is None:
+            l3_mshrs = L3_MSHRS
+        if mem_channels is None:
+            mem_channels = MEM_CHANNELS
+
+    arm_name, cell, k, ipp, prefetch = arm[:5]
+    hwp_type = arm[5] if len(arm) > 5 else None
+
+    bench_info = BENCHMARKS[bench]
+    bin_path = bench_info.get("bin") or resolve_bin(bench)
+    cmd_arg = ";".join([bin_path] * num_cpus)
+
+    bench_opts, maxinsts = bench_info[profile]
+    opts_stripped = bench_opts.strip()
+
+    # Multi-channel Ramulator config resolution
+    if num_cpus > 1:
+        ram_cfg = CFG_IPP_2CH if ipp else CFG_NOIPP_2CH
+        use_mem_channels = mem_channels
+    else:
+        ram_cfg = CFG_IPP if ipp else CFG_NOIPP
+        use_mem_channels = mem_channels
+
     cmd = [
         GEM5_BIN,
         f"-d{outdir}",
         CONFIG_SE,
+        f"--num-cpus={num_cpus}",
         "--cpu-type=DerivO3CPU",
         "--cpu-clock=2400MHz",
         "--sys-clock=2400MHz",
@@ -378,24 +447,43 @@ def build_command(bench, profile, lat, arm, outdir):
         "--l3_size=2MB",
         "--l3_assoc=8",
         "--mem-type=Ramulator",
-        f"--ramulator-config={CFG_IPP if ipp else CFG_NOIPP}",
-        f"--cxl-latency={lat}",
-        f"--cmd={BENCHMARKS[bench]['bin']}",
-        f"--options={options}",
-        f"--maxinsts={maxinsts}",
     ]
+    if use_mem_channels is not None:
+        cmd.append(f"--mem-channels={use_mem_channels}")
+    if num_cpus > 1:
+        cmd.append("--mem-size=8GB")
+    cmd.append(f"--ramulator-config={ram_cfg}")
+
+    if l3_mshrs is not None:
+        cmd.append(f"--l3_mshrs={l3_mshrs}")
+
+    cmd += [
+        f"--cxl-latency={lat}",
+        f"--cmd={cmd_arg}",
+    ]
+
+    if opts_stripped:
+        opts_arg = ";".join([opts_stripped] * num_cpus)
+        cmd.append(f"--options={opts_arg}")
+
+    cmd.append(f"--maxinsts={maxinsts}")
+
     if ipp or prefetch:
         # the iMC IPP/iBatch logic is only enabled with --meta-isa-type=IPP
-        cmd += ["--meta-isa-type=IPP"]
-    if prefetch:
-        cmd += ["--l3-hwp-type=InterStellarPrefetcher"]
+        cmd.append("--meta-isa-type=IPP")
+    if hwp_type:
+        cmd.append(f"--l3-hwp-type={hwp_type}")
+    elif prefetch:
+        cmd.append("--l3-hwp-type=InterStellarPrefetcher")
     if cell:
-        cmd += [
-            f"--meta-isa-cell={cell}",
-            f"--meta-isa-prep-k={k}",
-            f"--meta-isa-interval-w={INTERVAL_W}",
-            f"--meta-isa-credits={CREDITS}",
-        ]
+        cmd.extend(
+            [
+                f"--meta-isa-cell={cell}",
+                f"--meta-isa-prep-k={k}",
+                f"--meta-isa-interval-w={INTERVAL_W}",
+                f"--meta-isa-credits={CREDITS}",
+            ]
+        )
     return cmd
 
 
@@ -427,6 +515,11 @@ def parse_stats(path):
         for k in keys:
             if k in vals:
                 return vals[k]
+        for k in keys:
+            suffix = "." + k if not k.startswith(".") else k
+            for vk in vals:
+                if vk == k or vk.endswith(suffix):
+                    return vals[vk]
         return 0.0
 
     out.update(
@@ -443,34 +536,203 @@ def parse_stats(path):
         ibatch_done=int(g("ramulator.Total_Requests_Completed_iBatch")),
         prep_seg=int(prep_seg),
         prep_blocked=int(prep_blk),
+        blocked_while_ready_at_iMC=int(
+            g(
+                "ramulator.blocked_while_ready_at_iMC",
+                "system.mem_ctrls.blocked_while_ready_at_iMC",
+                "blocked_while_ready_at_iMC",
+            )
+        ),
+        l3_mshr_blocked_cycles=int(
+            g(
+                "system.l3.blockedCycles::no_mshrs",
+                "system.l3.blocked_cycles::no_mshrs",
+                "blockedCycles::no_mshrs",
+            )
+        ),
+        demand_avg_mshr_miss_latency=float(
+            g(
+                "system.l3.demandAvgMshrMissLatency::total",
+                "demandAvgMshrMissLatency::total",
+            )
+        ),
+        overall_mshr_misses=int(
+            g(
+                "system.l3.overallMshrMisses::total",
+                "overallMshrMisses::total",
+            )
+        ),
+        compass_seeds_arrived=int(
+            g(
+                "ramulator.compass_seeds_arrived",
+                "system.mem_ctrls.compass_seeds_arrived",
+                "compass_seeds_arrived",
+            )
+        ),
+        tot_compass_seeds=int(
+            g(
+                "system.l3.prefetcher.tot_compass_seeds",
+                "tot_compass_seeds",
+            )
+        ),
     )
     return out
 
 
+def _is_numeric_token(tok):
+    try:
+        float(tok)
+        return True
+    except ValueError:
+        pass
+    try:
+        int(tok, 0)
+        return True
+    except ValueError:
+        pass
+    if re.match(r"^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$", tok):
+        return True
+    return False
+
+
+def _is_numeric_line(line):
+    parts = line.split()
+    if not parts:
+        return False
+    if re.match(r"^[a-zA-Z_]\w*(\[[^\]]+\])*\s*=\s*[-+0-9xa-fA-F.]+$", line):
+        return True
+    return all(_is_numeric_token(p) for p in parts)
+
+
 def parse_checksum(log):
     if not os.path.isfile(log):
-        return None
+        return (None, "UNVERIFIED")
     with open(log, errors="replace") as fh:
         text = fh.read()
+
+    # 1. Direct Checksum: ... line
     m = re.findall(r"Checksum:\s*([-+0-9.eE]+)", text)
     if m:
-        return m[-1]
-    # Fallback for PolyBench outputs
-    lines = []
+        return (m[-1], "VERIFIED")
+
+    # 2. Output between BEGIN_OUTPUT and END_OUTPUT
+    if "BEGIN_OUTPUT" in text and "END_OUTPUT" in text:
+        start = text.find("BEGIN_OUTPUT") + len("BEGIN_OUTPUT")
+        end = text.find("END_OUTPUT", start)
+        if end != -1:
+            raw_lines = text[start:end].splitlines()
+            out_lines = [l.strip() for l in raw_lines if l.strip()]
+            if out_lines:
+                digest = hashlib.md5(
+                    "\n".join(out_lines).encode()
+                ).hexdigest()[:12]
+                return (f"hash_{digest}", "VERIFIED")
+
+    # 3. Numeric benchmark output lines after filtering telemetry
+    telemetry_patterns = [
+        "iHWP Configs:",
+        "Ramulator system configuration file",
+        "warn:",
+        "info:",
+        "panic:",
+        "fatal:",
+        "Global frequency set to",
+        "Global frequency",
+        "Simulation.py",
+        "buildEnv",
+        "Abotaleb",
+        "src/",
+        "gem5",
+        "command line:",
+        "test_mem_mode",
+        "FutureClass",
+        "1GHz",
+        "2GHz",
+        "2400MHz",
+        "**** REAL",
+        "Exiting @ tick",
+        "CMD:",
+        "simTicks",
+        "simInsts",
+        "Memory Controller",
+        "Processor",
+        "Reading from",
+        "Connecting",
+        "Building",
+        "Number of cpus",
+        "Channel",
+        "Rank",
+        "For elastic trace",
+        "system.",
+    ]
+
+    benchmark_lines = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
-        if any(line.startswith(p) for p in [
-            "Global frequency", "warn:", "info:", "src/", "gem5", "command line:",
-            "Abotaleb", "test_mem_mode", "FutureClass", "1GHz", "2GHz",
-            "**** REAL", "Exiting @ tick", "CMD:", "simTicks", "simInsts"
-        ]):
+        if any(line.startswith(p) or p in line for p in telemetry_patterns):
             continue
-        lines.append(line)
-    if lines:
-        return "hash_" + hashlib.md5("\n".join(lines).encode()).hexdigest()[:12]
-    return "rc0_ok"
+        if any(
+            line.startswith(p)
+            for p in ["&A[", "&x[", "&y[", "&tmp[", "&s[", "&p[", "&w["]
+        ):
+            continue
+        if _is_numeric_line(line):
+            benchmark_lines.append(line)
+
+    if benchmark_lines:
+        digest = hashlib.md5("\n".join(benchmark_lines).encode()).hexdigest()[
+            :12
+        ]
+        return (f"hash_{digest}", "VERIFIED")
+
+    return (None, "UNVERIFIED")
+
+
+def evaluate_run(
+    rc_or_bench, r_or_profile=None, maxinsts_or_arm=None, r=None, rc=None
+):
+    """Classify the verdict of an individual run.
+
+    Can be called as:
+      evaluate_run(rc, r, maxinsts)
+    or:
+      evaluate_run(bench, profile, arm_name, r, rc)
+
+    Returns one of: 'FAIL', 'INIT_ONLY', 'TRUNCATED', 'PASS'
+    """
+    if r is not None:
+        actual_r = r
+        actual_rc = 0 if rc is None else rc
+        maxinsts = int(BENCHMARKS[rc_or_bench][r_or_profile][1])
+    elif isinstance(r_or_profile, dict):
+        actual_rc = rc_or_bench
+        actual_r = r_or_profile
+        maxinsts = int(maxinsts_or_arm)
+    elif isinstance(rc_or_bench, dict):
+        actual_r = rc_or_bench
+        maxinsts = int(r_or_profile)
+        actual_rc = 0 if maxinsts_or_arm is None else maxinsts_or_arm
+    else:
+        actual_rc = rc_or_bench
+        actual_r = r_or_profile
+        maxinsts = int(maxinsts_or_arm)
+
+    if actual_rc != 0 or not (actual_r and actual_r.get("ok")):
+        return "FAIL"
+    insts = actual_r.get("insts", 0)
+    pf_issued = actual_r.get("pf_issued", 0)
+    ibatch = actual_r.get("ibatch_done", 0)
+    if insts >= maxinsts:
+        if pf_issued == 0 and ibatch == 0:
+            return "INIT_ONLY"
+        else:
+            return "TRUNCATED"
+    return "PASS"
+
+
+classify_verdict = evaluate_run
 
 
 def execute(job, force):
@@ -543,12 +805,26 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
     perf = []
     for b in benches:
         must_prep = BENCHMARKS[b]["must_prep"]
+        maxi = int(BENCHMARKS[b][CUR_PROFILE][1])
         for lat in lats:
             scope = f"{b}@{lat}"
-            R = {
-                a: results.get((b, lat, a))
-                for a in [x[0] for x in arms_for(ks)]
+            active_arms = arms_for(ks)
+            present_arm_names = {
+                k[2] for k in results.keys() if k[0] == b and k[1] == lat
             }
+            for candidate in [
+                ("iPF_noCoord", None, 1, True, True),
+                ("iPF_IPP_uncoord", None, 1, True, True),
+                ("stride", None, 1, False, False, "StridePrefetcher"),
+                ("bop", None, 1, False, False, "BOPPrefetcher"),
+                ("sms", None, 1, False, False, "SmsPrefetcher"),
+            ]:
+                if candidate[0] in present_arm_names and not any(
+                    a[0] == candidate[0] for a in active_arms
+                ):
+                    active_arms.append(candidate)
+
+            R = {a[0]: results.get((b, lat, a[0])) for a in active_arms}
             # 1. exit codes / stats presence
             bad = [
                 a
@@ -565,13 +841,15 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
                 if r and r["ok"] and rcs.get((b, lat, a)) == 0
             }
             # 2. checksum
-            cs = {a: checksums.get((b, lat, a)) for a in good}
+            cs = {}
+            for a in good:
+                entry = checksums.get((b, lat, a))
+                cs[a] = entry[0] if isinstance(entry, tuple) else entry
             vals = set(cs.values())
-            maxi = int(BENCHMARKS[b][CUR_PROFILE][1])
             truncated = bool(good) and all(
                 r["insts"] >= maxi for r in good.values()
             )
-            if truncated and set(cs.values()) == {None}:
+            if truncated and vals == {None}:
                 checks.add(
                     "WARN",
                     scope,
@@ -589,10 +867,121 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
                 checks.add("PASS", scope, f"checksum identical ({vals.pop()})")
             else:
                 checks.add("FAIL", scope, f"checksum mismatch: {cs}")
+
+            # G5 INIT_ONLY and TRUNCATED classification
+            for a, r in good.items():
+                if r["insts"] >= maxi:
+                    if r["pf_issued"] == 0 and r["ibatch_done"] == 0:
+                        checks.add(
+                            "INIT_ONLY",
+                            scope,
+                            f"{a}: G5 INIT_ONLY (sim_insts={r['insts']} == "
+                            f"maxinsts={maxi}, pf_issued=0, ibatch=0)",
+                        )
+                    else:
+                        checks.add(
+                            "TRUNCATED",
+                            scope,
+                            f"{a}: TRUNCATED (sim_insts={r['insts']} == "
+                            f"maxinsts={maxi}, pf_issued={r['pf_issued']}, "
+                            f"ibatch={r['ibatch_done']})",
+                        )
+
+            # Mechanism gates
+            # G1: pf_issued >= 1000 and pf_useful > 0 (for prefetch/COMPASS arms on supported streaming workloads)
+            # G2: ibatch_completed > 0 (for IPP/COMPASS arms)
+            # G4: compass_seeds_arrived == tot_compass_seeds (for B/D arms)
+            arm_dict = {a[0]: a for a in active_arms}
+            for a, r in good.items():
+                is_init_only = (
+                    r["insts"] >= maxi
+                    and r["pf_issued"] == 0
+                    and r["ibatch_done"] == 0
+                )
+                if is_init_only:
+                    continue  # INIT_ONLY runs didn't reach kernel
+
+                arm_info = arm_dict.get(a)
+                cell_val = arm_info[1] if arm_info else None
+                ipp_val = arm_info[3] if arm_info else False
+                pref_val = arm_info[4] if arm_info else False
+
+                # G1 check
+                if pref_val:
+                    if r["pf_issued"] >= 1000 and r["pf_useful"] > 0:
+                        checks.add(
+                            "PASS",
+                            scope,
+                            f"{a}: G1 pf_issued={r['pf_issued']}, "
+                            f"pf_useful={r['pf_useful']}",
+                        )
+                    else:
+                        lvl = "FAIL" if must_prep else "WARN"
+                        checks.add(
+                            lvl,
+                            scope,
+                            f"{a}: G1 failed (pf_issued={r['pf_issued']}, "
+                            f"pf_useful={r['pf_useful']})",
+                        )
+
+                # G2 check
+                if ipp_val:
+                    if r["ibatch_done"] > 0:
+                        checks.add(
+                            "PASS",
+                            scope,
+                            f"{a}: G2 ibatch_completed={r['ibatch_done']}",
+                        )
+                    else:
+                        checks.add(
+                            "FAIL",
+                            scope,
+                            f"{a}: G2 failed (ibatch_completed={r['ibatch_done']})",
+                        )
+
+                # G4 check
+                if cell_val in ("B", "D") or a == "B" or a.startswith("D_"):
+                    arrived = r.get("compass_seeds_arrived", 0)
+                    tot = r.get("tot_compass_seeds", 0)
+                    if arrived == tot and tot > 0:
+                        checks.add(
+                            "PASS",
+                            scope,
+                            f"{a}: G4 compass_seeds_arrived == "
+                            f"tot_compass_seeds == {arrived}",
+                        )
+                    elif arrived == tot:
+                        checks.add(
+                            "WARN" if not must_prep else "FAIL",
+                            scope,
+                            f"{a}: G4 seeds matched but zero "
+                            f"(arrived={arrived}, tot={tot})",
+                        )
+                    else:
+                        checks.add(
+                            "FAIL",
+                            scope,
+                            f"{a}: G4 failed: compass_seeds_arrived={arrived} "
+                            f"!= tot_compass_seeds={tot}",
+                        )
+
             # 3. prep stats zero where K-prep must be off
             off = [
                 a
-                for a in ("stock", "ipp", "prefetch", "A", "B", "C_k1", "D_k1")
+                for a in (
+                    "stock",
+                    "ipp",
+                    "prefetch",
+                    "iPF_noCoord",
+                    "iPF_IPP_uncoord",
+                    "stride",
+                    "bop",
+                    "sms",
+                    "A",
+                    "B",
+                    "C_k1",
+                    "D_k1",
+                )
                 if a in good
             ]
             nz = [a for a in off if good[a]["prep_seg"] != 0]
@@ -674,6 +1063,16 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
                     c, d = good.get(f"C_k{kk}"), good.get(f"D_k{kk}")
                     if not (c and d):
                         continue
+                    # Skip INIT_ONLY runs from performance evaluation
+                    if any(
+                        (
+                            x["insts"] >= maxi
+                            and x["pf_issued"] == 0
+                            and x["ibatch_done"] == 0
+                        )
+                        for x in (good["A"], good["B"], c, d)
+                    ):
+                        continue
                     ta, tb = good["A"]["seconds"], good["B"]["seconds"]
                     tc, td = c["seconds"], d["seconds"]
                     perf.append(
@@ -685,13 +1084,13 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
                             "T_B": tb,
                             "T_C": tc,
                             "T_D": td,
-                            "S_B/A": ta / tb,
-                            "S_C/A": ta / tc,
-                            "S_D/A": ta / td,
+                            "S_B/A": ta / tb if tb else 0.0,
+                            "S_C/A": ta / tc if tc else 0.0,
+                            "S_D/A": ta / td if td else 0.0,
                             "I": ln(tb) + ln(tc) - ln(ta) - ln(td),
                             "S_A/stock": (
                                 good["stock"]["seconds"] / ta
-                                if "stock" in good
+                                if "stock" in good and ta
                                 else 0.0
                             ),
                         }
@@ -709,6 +1108,7 @@ def write_outputs(
         "latency",
         "arm",
         "return_code",
+        "verdict",
         "checksum",
         "sim_seconds",
         "sim_ticks",
@@ -722,22 +1122,55 @@ def write_outputs(
         "ibatch_completed",
         "prep_segments_advanced",
         "prep_blocked",
+        "blocked_while_ready_at_iMC",
+        "l3_mshr_blocked_cycles",
+        "demand_avg_mshr_miss_latency",
+        "overall_mshr_misses",
+        "compass_seeds_arrived",
+        "tot_compass_seeds",
     ]
+    active_arms = arms_for(ks)
+    present_arm_names = {k[2] for k in results.keys()}
+    for candidate in [
+        ("iPF_noCoord", None, 1, True, True),
+        ("iPF_IPP_uncoord", None, 1, True, True),
+        ("stride", None, 1, False, False, "StridePrefetcher"),
+        ("bop", None, 1, False, False, "BOPPrefetcher"),
+        ("sms", None, 1, False, False, "SmsPrefetcher"),
+    ]:
+        if candidate[0] in present_arm_names and not any(
+            a[0] == candidate[0] for a in active_arms
+        ):
+            active_arms.append(candidate)
+
     with open(csv_path, "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(fields)
         for b in benches:
+            maxi = int(BENCHMARKS[b][profile][1])
             for lat in lats:
-                for arm in arms_for(ks):
+                for arm in active_arms:
                     a = arm[0]
                     r = results.get((b, lat, a)) or {"ok": False}
+                    rc = rcs.get((b, lat, a))
+                    v = classify_verdict(rc, r, maxi)
+                    cs_entry = checksums.get((b, lat, a))
+                    if isinstance(cs_entry, tuple):
+                        cs_val, cs_status = cs_entry
+                    else:
+                        cs_val, cs_status = (
+                            cs_entry,
+                            "OK" if cs_entry else "UNVERIFIED",
+                        )
+                    cs_str = cs_val if cs_val is not None else cs_status
                     w.writerow(
                         [
                             b,
                             lat,
                             a,
-                            rcs.get((b, lat, a)),
-                            checksums.get((b, lat, a)),
+                            rc,
+                            v,
+                            cs_str,
                             r.get("seconds"),
                             r.get("ticks"),
                             r.get("insts"),
@@ -750,6 +1183,12 @@ def write_outputs(
                             r.get("ibatch_done"),
                             r.get("prep_seg"),
                             r.get("prep_blocked"),
+                            r.get("blocked_while_ready_at_iMC", 0),
+                            r.get("l3_mshr_blocked_cycles", 0),
+                            r.get("demand_avg_mshr_miss_latency", 0.0),
+                            r.get("overall_mshr_misses", 0),
+                            r.get("compass_seeds_arrived", 0),
+                            r.get("tot_compass_seeds", 0),
                         ]
                     )
     md = os.path.join(OUTPUT_DIR, "verify_summary.md")
@@ -758,11 +1197,19 @@ def write_outputs(
         fh.write(f"Binary: `{GEM5_BIN}`  \n")
         fh.write(
             f"PASS={checks.count('PASS')} WARN={checks.count('WARN')} "
-            f"FAIL={checks.count('FAIL')}\n\n## Checks\n\n"
+            f"FAIL={checks.count('FAIL')} INIT_ONLY={checks.count('INIT_ONLY')} "
+            f"TRUNCATED={checks.count('TRUNCATED')}\n\n## Checks\n\n"
         )
         fh.write("| Result | Scope | Detail |\n|---|---|---|\n")
+        order = {
+            "FAIL": 0,
+            "INIT_ONLY": 1,
+            "TRUNCATED": 2,
+            "WARN": 3,
+            "PASS": 4,
+        }
         for lvl, scope, msg in sorted(
-            checks.rows, key=lambda r: ("FAIL WARN PASS".index(r[0]), r[1])
+            checks.rows, key=lambda r: (order.get(r[0], 5), r[1])
         ):
             fh.write(f"| {lvl} | {scope} | {msg} |\n")
         fh.write(
@@ -822,7 +1269,7 @@ def write_outputs(
 
 
 def main():
-    global CUR_PROFILE, INTERVAL_W, CREDITS
+    global CUR_PROFILE, INTERVAL_W, CREDITS, NUM_CPUS, MEM_CHANNELS, L3_MSHRS, INCLUDE_SOTA, INCLUDE_UNCOORD
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
@@ -831,6 +1278,57 @@ def main():
     ap.add_argument("--benchmarks", default=",".join(BENCHMARKS))
     ap.add_argument("--latencies", default="40,120")
     ap.add_argument("--ks", default="2,4", help="K values for cells C/D")
+    ap.add_argument(
+        "--num-cpus",
+        type=int,
+        default=1,
+        help="Number of CPUs for multicore runs",
+    )
+    ap.add_argument(
+        "--mem-channels",
+        type=int,
+        default=None,
+        help="Number of memory channels",
+    )
+    ap.add_argument(
+        "--l3-mshrs",
+        type=int,
+        default=None,
+        help="Override L3 cache MSHRs",
+    )
+    ap.add_argument(
+        "--sota",
+        "--include-sota",
+        dest="include_sota",
+        action="store_true",
+        default=False,
+        help="Include SOTA prefetcher arms (stride, bop, sms)",
+    )
+    ap.add_argument(
+        "--no-sota",
+        dest="include_sota",
+        action="store_false",
+        help="Exclude SOTA prefetcher arms",
+    )
+    ap.add_argument(
+        "--uncoord",
+        "--include-uncoord",
+        dest="include_uncoord",
+        action="store_true",
+        default=False,
+        help="Include uncoordinated arm iPF_noCoord",
+    )
+    ap.add_argument(
+        "--no-uncoord",
+        dest="include_uncoord",
+        action="store_false",
+        help="Exclude uncoordinated arm",
+    )
+    ap.add_argument(
+        "--arms",
+        default=None,
+        help="Comma-separated subset of arms to run",
+    )
     ap.add_argument(
         "--interval-w",
         type=int,
@@ -855,8 +1353,27 @@ def main():
     CUR_PROFILE = args.profile
     INTERVAL_W = args.interval_w
     CREDITS = args.credits
+    NUM_CPUS = args.num_cpus
+    MEM_CHANNELS = args.mem_channels
+    L3_MSHRS = args.l3_mshrs
+    INCLUDE_SOTA = args.include_sota
+    INCLUDE_UNCOORD = args.include_uncoord
 
-    benches = [x for x in args.benchmarks.split(",") if x]
+    if args.arms:
+        wanted = [x.strip() for x in args.arms.split(",") if x.strip()]
+        if any(w in ("stride", "bop", "sms") for w in wanted):
+            INCLUDE_SOTA = True
+        if any(w in ("iPF_noCoord", "iPF_IPP_uncoord") for w in wanted):
+            INCLUDE_UNCOORD = True
+
+    if args.benchmarks in ("heldout", "held_out"):
+        benches = list(HELDOUT_BENCHMARKS)
+    elif args.benchmarks == "default":
+        benches = list(DEFAULT_BENCHMARKS)
+    elif args.benchmarks == "exp1":
+        benches = list(EXP1_BENCHMARKS)
+    else:
+        benches = [x for x in args.benchmarks.split(",") if x]
     for b in benches:
         if b not in BENCHMARKS:
             sys.exit(f"unknown benchmark {b}; known {list(BENCHMARKS)}")
@@ -867,11 +1384,22 @@ def main():
 
     if args.build and not args.dry_run:
         compile_binaries(benches)
+
+    arms_to_run = arms_for(ks)
+    if args.arms:
+        wanted = [x.strip() for x in args.arms.split(",") if x.strip()]
+        arms_to_run = [
+            a
+            for a in arms_to_run
+            if a[0] in wanted
+            or (a[0] == "iPF_IPP_uncoord" and "iPF_noCoord" in wanted)
+        ]
+
     jobs = [
         (b, args.profile, lat, arm)
         for b in benches
         for lat in lats
-        for arm in arms_for(ks)
+        for arm in arms_to_run
     ]
 
     if args.dry_run:
@@ -927,7 +1455,8 @@ def main():
     )
     print(
         f"\nPASS={checks.count('PASS')} WARN={checks.count('WARN')} "
-        f"FAIL={checks.count('FAIL')}  improvement_observed={gain}"
+        f"FAIL={checks.count('FAIL')} INIT_ONLY={checks.count('INIT_ONLY')} "
+        f"TRUNCATED={checks.count('TRUNCATED')}  improvement_observed={gain}"
     )
     for lvl, scope, msg in checks.rows:
         if lvl != "PASS":

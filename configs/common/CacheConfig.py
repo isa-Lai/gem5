@@ -68,6 +68,13 @@ def _get_cache_opts(level, options):
     if hasattr(options, assoc_attr):
         opts["assoc"] = getattr(options, assoc_attr)
 
+    mshrs_attr = f"{level}_mshrs"
+    if (
+        hasattr(options, mshrs_attr)
+        and getattr(options, mshrs_attr) is not None
+    ):
+        opts["mshrs"] = getattr(options, mshrs_attr)
+
     prefetcher_attr = f"{level}_hwp_type"
     if hasattr(options, prefetcher_attr):
         opts["prefetcher"] = _get_hwp(getattr(options, prefetcher_attr))

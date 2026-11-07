@@ -100,6 +100,16 @@ namespace ramulator
             int next = (tail_ + 1) % iPrefetcherBufferSize;
             return next == head_;
         }
+        bool
+        hasReadyData() const
+        {
+            for (const auto &pair : data_) {
+                if (pair.second.W == 0 && pair.second.R == 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
         void Push(const std::pair<T1, T2>& item) {
             int next = (tail_ + 1) % iPrefetcherBufferSize;
             auto it = data_.find(item.first);

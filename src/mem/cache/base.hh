@@ -1206,6 +1206,12 @@ class BaseCache : public ClockedObject
         return blocked != 0;
     }
 
+    bool
+    isBlocked(BlockedCause cause) const
+    {
+        return (blocked & (1 << cause)) != 0;
+    }
+
     /**
      * Marks the access path of the cache as blocked for the given cause. This
      * also sets the blocked flag in the response interface.

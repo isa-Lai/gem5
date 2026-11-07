@@ -1,14 +1,15 @@
-#include "base/callback.hh"
 #include "mem/ramulator.hh"
-#include "Ramulator/src/Gem5Wrapper.h"
-#include "Ramulator/src/Request.h"
-//#include "Ramulator/src/Iprefetcher.h"
-#include "Ramulator/src/iPrefetcherCircBuffer.h"
 
-#include "sim/system.hh"
+#include "base/callback.hh"
+#include "debug/IPREFETCHER.hh"
 #include "debug/Ramulator.hh"
 #include "debug/RamulatorData.hh"
-#include "debug/IPREFETCHER.hh"
+#include "mem/cache/base.hh"
+#include "sim/system.hh"
+
+#include "Ramulator/src/Gem5Wrapper.h"
+#include "Ramulator/src/Request.h"
+#include "Ramulator/src/iPrefetcherCircBuffer.h"
 
 using namespace gem5;
 using namespace gem5::memory;
@@ -23,33 +24,35 @@ unsigned long my_write_cnt = 0;
 unsigned long my_total_cnt = 0;
 int const COREID_MASK              = 0xFFFF;
 
-
-Ramulator::Ramulator(const RamulatorParams &p) : AbstractMemory(p),
-                                                 port(name() + ".port", *this),
-                                                 requestsInFlight(0),
-                                                 config_file(p.config_file),
-                                                 cmdTracePath(p.cmdTracePath),
-                                                 configs(p.config_file),
-                                                 wrapper(NULL),
-                                                 read_cb_func(std::bind(&Ramulator::readComplete, this, std::placeholders::_1,std::placeholders::_2)),
-                                                 write_cb_func(std::bind(&Ramulator::writeComplete, this, std::placeholders::_1,std::placeholders::_2)),
-                                                 ticks_per_clk(0),
-                                                 resp_stall(false),
-                                                 req_stall(false),
-                                                 is_ideal_mem(p.is_ideal_mem),
-                                                 send_resp_event(this),
-                                                 tick_event(this)
+Ramulator::Ramulator(const RamulatorParams &p)
+    : AbstractMemory(p),
+      port(name() + ".port", *this),
+      requestsInFlight(0),
+      config_file(p.config_file),
+      cmdTracePath(p.cmdTracePath),
+      configs(p.config_file),
+      wrapper(NULL),
+      read_cb_func(std::bind(&Ramulator::readComplete, this,
+                             std::placeholders::_1, std::placeholders::_2)),
+      write_cb_func(std::bind(&Ramulator::writeComplete, this,
+                              std::placeholders::_1, std::placeholders::_2)),
+      ticks_per_clk(0),
+      resp_stall(false),
+      req_stall(false),
+      is_ideal_mem(p.is_ideal_mem),
+      l3_cache(nullptr),
+      send_resp_event(this),
+      tick_event(this)
 {
     warmuptime    = p.real_warm_up ;
     last_req_tick =             0  ;
     // Abotaleb: Construct the intelligenet preftecher
     iBatchAllocated = true;
+    memset(iBatchBuffer, 0, sizeof(iBatchBuffer));
     channels     = stoi(configs["channels"], NULL, 0);
 
-    for(int ch_id  = 0 ; ch_id  < channels  ; ch_id++ )
-    {
-        for(int ba_ind = 0 ; ba_ind < MAX_BANKS ; ba_ind++)
-        {
+    for (int ch_id = 0; ch_id < channels; ch_id++) {
+        for (int ba_ind = 0; ba_ind < MAX_BANKS; ba_ind++) {
             iBatchBuffer[ch_id][ba_ind] = new ramulator::circBuffer<ramulator::iBufferKeyClass, ramulator::IpreftecherQueueEntry>();
         }
     }
@@ -82,6 +85,10 @@ Ramulator::Ramulator(const RamulatorParams &p) : AbstractMemory(p),
         .desc("Actual number of requested and completed intelligent prefectches commands per stream")
         .precision(0);
 
+   blocked_while_ready_at_iMC.name("blocked_while_ready_at_iMC")
+       .desc("Cycles where LLC was blocked by MSHR exhaustion while eligible "
+             "useful data were ready (W=0) in iBuffer")
+       .precision(0);
 }
 Ramulator::~Ramulator()
 {
@@ -92,15 +99,20 @@ Ramulator::~Ramulator()
         delete wrapper;
         del_wrapper = true;
     }
-	for(int i = 0 ; i < 8 ; i ++)
-	{
-		mem_trace_file[i].close();
-	}
-
+    for (int i = 0; i < 8; i++) {
+        mem_trace_file[i].close();
+    }
 }
 
 void Ramulator::init()
 {
+    if (!l3_cache) {
+        SimObject *obj = SimObject::find("system.l3");
+        if (obj) {
+            l3_cache = dynamic_cast<gem5::BaseCache *>(obj);
+        }
+    }
+
     if (!port.isConnected())
     {
         fatal("Ramulator port not connected\n");
@@ -178,8 +190,7 @@ void Ramulator::sendResponse()
     else
         resp_stall = true;
 
-    if(curTick()==6609867)
-    {
+    if (curTick() == 6609867) {
         cout<<"Reads Queue :"<<endl;
         for (auto const& x : reads)
         {
@@ -191,6 +202,22 @@ void Ramulator::sendResponse()
 void Ramulator::tick()
 {
     wrapper->tick();
+
+    if (l3_cache && l3_cache->isBlocked(gem5::BaseCache::Blocked_NoMSHRs)) {
+        bool ready_in_ibuffer = false;
+        for (int ch = 0; ch < MAX_CHANNELS && !ready_in_ibuffer; ch++) {
+            for (int ba = 0; ba < MAX_BANKS; ba++) {
+                if (iBatchBuffer[ch][ba] &&
+                    iBatchBuffer[ch][ba]->hasReadyData()) {
+                    ready_in_ibuffer = true;
+                    break;
+                }
+            }
+        }
+        if (ready_in_ibuffer) {
+            blocked_while_ready_at_iMC++;
+        }
+    }
 
     if (req_stall)
     {
@@ -233,24 +260,22 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
     // daz3
     if (begin_tick == 0)
     {
-		ofstream master_trace;
-		master_trace.open(cmdTracePath+"/master_trace.trc");
-		std::string truncatedPath = cmdTracePath;
-		std::size_t pos = cmdTracePath.find("BM");
-		if (pos != std::string::npos) {
-			std::string truncatedPath = cmdTracePath.substr(pos);
-		} else {
-			std::cout << "Substring 'BM' not found in cmdTrace!" << std::endl;
-		}
+        ofstream master_trace;
+        master_trace.open(cmdTracePath + "/master_trace.trc");
+        std::string truncatedPath = cmdTracePath;
+        std::size_t pos = cmdTracePath.find("BM");
+        if (pos != std::string::npos) {
+            std::string truncatedPath = cmdTracePath.substr(pos);
+        } else {
+            std::cout << "Substring 'BM' not found in cmdTrace!" << std::endl;
+        }
 
-
-		for(int i = 0 ; i < num_cores ; i ++)
-		{
-                    string mem_trace_path =
-                        truncatedPath + "/mem_" + to_string(i) + "_trace.in";
-                    master_trace << mem_trace_path << endl;
-                    mem_trace_file[i].open(mem_trace_path);
-                }
+        for (int i = 0; i < num_cores; i++) {
+            string mem_trace_path =
+                truncatedPath + "/mem_" + to_string(i) + "_trace.in";
+            master_trace << mem_trace_path << endl;
+            mem_trace_file[i].open(mem_trace_path);
+        }
                 master_trace.close();
 
                 begin_tick = curTick();
@@ -297,8 +322,7 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
     uint8_t  metaIsaStreamID     = pkt->getMetaISAStreamID()        ;
     uint32_t metaIsaRequestorID = pkt->getMetaISARequestorID();
 
-    if(metaIsaRequestorID>num_cores)
-	{
+    if (metaIsaRequestorID > num_cores) {
         // In case of such request recieved
         // printf("\t::Request from un-initalized source requestor ID "
         //       "is received(A:%#lx)(Tick:%ld)!\n",
@@ -308,9 +332,8 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
 
     /************* Ideal DRAM = To create memory request traces *************/
     // Ideal DRAM is used to generate the memory traces.
-	//is_ideal_mem = true ;
-    if(is_ideal_mem)
-    {
+    // is_ideal_mem = true ;
+    if (is_ideal_mem) {
 
         // compute elapsed cycles since last request ; last_req_tick = 0
         uint64_t cur_cycle = (curTick()/clockPeriod());
@@ -363,10 +386,8 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
         ramulator::iBufferKeyClass iPrefetcherQkey(
             req.addr, req.metaISAStreamID, req.metaISARequestorID);
         bool inIPDQ = false;
-        for(int ch_id  = 0 ; ch_id  < channels  ; ch_id++ )
-        {
-            for(int ba_ind = 0 ; ba_ind < MAX_BANKS ;  ba_ind++)
-            {
+        for (int ch_id = 0; ch_id < channels; ch_id++) {
+            for (int ba_ind = 0; ba_ind < MAX_BANKS; ba_ind++) {
                 inIPDQ |= (this->iBatchBuffer[ch_id][ba_ind]->find(iPrefetcherQkey) );
             }
         }
@@ -424,8 +445,7 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
         //  ramulator::Request req(pkt->getAddr(),
         //      ramulator::Request::Type::WRITE, write_cb_func, false, 0);
         //@todo Update for MC with many channels: Assume single channel for now
-        for(int ch_id  = 0 ; ch_id  < channels  ; ch_id++ )
-        {
+        for (int ch_id = 0; ch_id < channels; ch_id++) {
             wrapper->updatePrefetcher(ch_id, iBatchBuffer[ch_id]);
         }
 
@@ -438,9 +458,10 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
         {
 
             /*uint8_t * oldDataPtr =pkt->getPtr<uint8_t>();
-            for(int pktDataIndx=0;pktDataIndx<pkt->getSize();pktDataIndx++)
+            for (int pktDataIndx=0;pktDataIndx<pkt->getSize();pktDataIndx++)
             {
-                DPRINTF(RamulatorData,"[Write] Addr %#lx has old data is %d\n",pkt->getAddr()+pktDataIndx,oldDataPtr[pktDataIndx]);
+                DPRINTF(RamulatorData,"[Write] Addr %#lx has old data is
+            %d\n",pkt->getAddr()+pktDataIndx,oldDataPtr[pktDataIndx]);
             }*/
 
             accessAndRespond(pkt);
