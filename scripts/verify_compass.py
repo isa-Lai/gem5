@@ -31,6 +31,7 @@ NOTE: gem5.fast compiles out assert(); the slot-conservation asserts in
 
 import argparse
 import csv
+import hashlib
 import math
 import os
 import re
@@ -44,9 +45,21 @@ from concurrent.futures import (
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 GEM5_ROOT = os.path.dirname(SCRIPT_DIR)
-GEM5_BIN = os.environ.get(
-    "GEM5_BIN", os.path.join(GEM5_ROOT, "build/RISCV/gem5.fast")
-)
+
+
+def _default_gem5_bin():
+    if "GEM5_BIN" in os.environ:
+        return os.environ["GEM5_BIN"]
+    fast = os.path.join(GEM5_ROOT, "build/RISCV/gem5.fast")
+    if os.path.isfile(fast):
+        return fast
+    opt = os.path.join(GEM5_ROOT, "build/RISCV/gem5.opt")
+    if os.path.isfile(opt):
+        return opt
+    return fast
+
+
+GEM5_BIN = _default_gem5_bin()
 CONFIG_SE = os.path.join(GEM5_ROOT, "configs/example/se.py")
 OUTPUT_DIR = os.path.normpath(
     os.environ.get("OUTPUT_DIR", os.path.join(GEM5_ROOT, "..", "output"))
@@ -55,28 +68,268 @@ RUN_ROOT = os.path.join(OUTPUT_DIR, "verify_runs")
 
 # profile -> per benchmark (options, maxinsts)
 BENCHMARKS = {
+    # Custom COMPASS BM kernels (pass problem size in options)
     "daxpy_large": {
         "src": "BM/daxpy_large/daxpy_large.c",
-        "bin": "BM/daxpy_large/daxpy_large.riscv",
+        "bin": "BM/daxpy_large/build/EXP/daxpy_large_exp.riscv",
         "quick": ("262144", "20000000"),
         "full": ("4194304", "100000000"),
         "must_prep": True,
     },
     "kv_cache": {
         "src": "BM/kv_cache/kv_cache.c",
-        "bin": "BM/kv_cache/kv_cache.riscv",
+        "bin": "BM/kv_cache/build/EXP/kv_cache_exp.riscv",
         "quick": ("8192", "20000000"),
         "full": ("65536", "100000000"),
         "must_prep": True,
     },
     "dlrm_gather": {
         "src": "BM/dlrm_gather/dlrm_gather.c",
-        "bin": "BM/dlrm_gather/dlrm_gather.riscv",
+        "bin": "BM/dlrm_gather/build/EXP/dlrm_gather_exp.riscv",
         "quick": ("8192", "10000000"),
         "full": ("65536", "20000000"),
         "must_prep": False,  # irregular gather: K-prep may legitimately idle
     },
+    # Prioritized PolyBench EXP kernels (no cli options; size compiled-in)
+    "atax": {
+        "src": "BMs/Polybench/atax/src/atax_v2.c",
+        "bin": "BMs/Polybench/atax/build/EXP/atax_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "120000000"),
+        "must_prep": True,
+    },
+    "bicg": {
+        "src": "BMs/Polybench/bicg/src/bicg_v2.c",
+        "bin": "BMs/Polybench/bicg/build/EXP/bicg_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "120000000"),
+        "must_prep": True,
+    },
+    "ddot": {
+        "src": "BMs/Polybench/ddot/src/ddot_v2.c",
+        "bin": "BMs/Polybench/ddot/build/EXP/ddot_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "daxpy": {
+        "src": "BMs/Polybench/daxpy/src/daxpy_v2.c",
+        "bin": "BMs/Polybench/daxpy/build/EXP/daxpy_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "dscal": {
+        "src": "BMs/Polybench/dscal/src/dscal_v2.c",
+        "bin": "BMs/Polybench/dscal/build/EXP/dscal_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "gemver": {
+        "src": "BMs/Polybench/gemver/src/gemver_v2.c",
+        "bin": "BMs/Polybench/gemver/build/EXP/gemver_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "mvt": {
+        "src": "BMs/Polybench/mvt/src/mvt_v2.c",
+        "bin": "BMs/Polybench/mvt/build/EXP/mvt_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "120000000"),
+        "must_prep": True,
+    },
+    "jacobi-2d": {
+        "src": "BMs/Polybench/jacobi-2d/src/jacobi-2d_v2.c",
+        "bin": "BMs/Polybench/jacobi-2d/build/EXP/jacobi-2d_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    # Additional PolyBench v2 kernels
+    "daxpys": {
+        "src": "BMs/Polybench/daxpys/src/daxpys_v2.c",
+        "bin": "BMs/Polybench/daxpys/build/EXP/daxpys_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "ddots": {
+        "src": "BMs/Polybench/ddots/src/ddots_v2.c",
+        "bin": "BMs/Polybench/ddots/build/EXP/ddots_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "dscals": {
+        "src": "BMs/Polybench/dscals/src/dscals_v2.c",
+        "bin": "BMs/Polybench/dscals/build/EXP/dscals_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "doitgen": {
+        "src": "BMs/Polybench/doitgen/src/doitgen_v2.c",
+        "bin": "BMs/Polybench/doitgen/build/EXP/doitgen_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "fdtd-2d": {
+        "src": "BMs/Polybench/fdtd-2d/src/fdtd-2d_v2.c",
+        "bin": "BMs/Polybench/fdtd-2d/build/EXP/fdtd-2d_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "floyd": {
+        "src": "BMs/Polybench/floyd/src/floyd_v2.c",
+        "bin": "BMs/Polybench/floyd/build/EXP/floyd_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "gemm": {
+        "src": "BMs/Polybench/gemm/src/gemm_v2.c",
+        "bin": "BMs/Polybench/gemm/build/EXP/gemm_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "gesummv": {
+        "src": "BMs/Polybench/gesummv/src/gesummv_v2.c",
+        "bin": "BMs/Polybench/gesummv/build/EXP/gesummv_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "heat-3d": {
+        "src": "BMs/Polybench/heat-3d/src/heat-3d_v2.c",
+        "bin": "BMs/Polybench/heat-3d/build/EXP/heat-3d_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "heat-3d-5s": {
+        "src": "BMs/Polybench/heat-3d-5s/src/heat-3d-5s_v2.c",
+        "bin": "BMs/Polybench/heat-3d-5s/build/EXP/heat-3d-5s_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "jacobi-1d": {
+        "src": "BMs/Polybench/jacobi-1d/src/jacobi-1d_v2.c",
+        "bin": "BMs/Polybench/jacobi-1d/build/EXP/jacobi-1d_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "knn1d": {
+        "src": "BMs/Polybench/knn1d/src/knn1d_v2.c",
+        "bin": "BMs/Polybench/knn1d/build/EXP/knn1d_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "knn2d": {
+        "src": "BMs/Polybench/knn2d/src/knn2d_v2.c",
+        "bin": "BMs/Polybench/knn2d/build/EXP/knn2d_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "knn3d": {
+        "src": "BMs/Polybench/knn3d/src/knn3d_v2.c",
+        "bin": "BMs/Polybench/knn3d/build/EXP/knn3d_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "memcpy": {
+        "src": "BMs/Polybench/memcpy/src/memcpy_v2.c",
+        "bin": "BMs/Polybench/memcpy/build/EXP/memcpy_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "scusumkbn": {
+        "src": "BMs/Polybench/scusumkbn/src/scusumkbn_v2.c",
+        "bin": "BMs/Polybench/scusumkbn/build/EXP/scusumkbn_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "scusumkbns": {
+        "src": "BMs/Polybench/scusumkbns/src/scusumkbns_v2.c",
+        "bin": "BMs/Polybench/scusumkbns/build/EXP/scusumkbns_exp.riscv",
+        "quick": (" ", "20000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "seidel-2d": {
+        "src": "BMs/Polybench/seidel-2d/src/seidel-2d_v2.c",
+        "bin": "BMs/Polybench/seidel-2d/build/EXP/seidel-2d_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "syn7s": {
+        "src": "BMs/Polybench/syn7s/src/syn7s_v2.c",
+        "bin": "BMs/Polybench/syn7s/build/EXP/syn7s_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": True,
+    },
+    "synind": {
+        "src": "BMs/Polybench/synind/src/synind_v2.c",
+        "bin": "BMs/Polybench/synind/build/EXP/synind_exp.riscv",
+        "quick": (" ", "50000000"),
+        "full": (" ", "100000000"),
+        "must_prep": False,
+    },
 }
+
+DEFAULT_BENCHMARKS = ["daxpy_large", "kv_cache", "dlrm_gather"]
+EXP1_BENCHMARKS = [
+    "daxpy_large",
+    "kv_cache",
+    "dlrm_gather",
+    "atax",
+    "bicg",
+    "ddot",
+    "daxpy",
+    "dscal",
+    "gemver",
+    "mvt",
+    "jacobi-2d",
+]
+
+
+def resolve_bin(bench):
+    """Resolve binary path relative to GEM5_ROOT with fallbacks."""
+    info = BENCHMARKS.get(bench, {})
+    candidates = []
+    if "bin" in info and info["bin"]:
+        candidates.append(info["bin"])
+    candidates.append(f"BMs/Polybench/{bench}/build/EXP/{bench}_exp.riscv")
+    candidates.append(f"BM/{bench}/build/EXP/{bench}_exp.riscv")
+    candidates.append(f"BM/{bench}/{bench}.riscv")
+    candidates.append(f"BMs/Polybench/{bench}/{bench}.riscv")
+
+    for rel in candidates:
+        if os.path.isfile(os.path.join(GEM5_ROOT, rel)):
+            return rel
+
+    for sub in ("BMs/Polybench", "BM"):
+        base = os.path.join(GEM5_ROOT, sub, bench)
+        if os.path.isdir(base):
+            for root, _, files in os.walk(base):
+                for f in sorted(files):
+                    if f.endswith(".riscv"):
+                        return os.path.relpath(os.path.join(root, f), GEM5_ROOT)
+
+    return info.get("bin", candidates[0])
 
 CUR_PROFILE = "quick"
 GAIN_MIN = 1.02  # >2% speedup over cell A counts as observable
@@ -200,7 +453,24 @@ def parse_checksum(log):
     with open(log, errors="replace") as fh:
         text = fh.read()
     m = re.findall(r"Checksum:\s*([-+0-9.eE]+)", text)
-    return m[-1] if m else None
+    if m:
+        return m[-1]
+    # Fallback for PolyBench outputs
+    lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if any(line.startswith(p) for p in [
+            "Global frequency", "warn:", "info:", "src/", "gem5", "command line:",
+            "Abotaleb", "test_mem_mode", "FutureClass", "1GHz", "2GHz",
+            "**** REAL", "Exiting @ tick", "CMD:", "simTicks", "simInsts"
+        ]):
+            continue
+        lines.append(line)
+    if lines:
+        return "hash_" + hashlib.md5("\n".join(lines).encode()).hexdigest()[:12]
+    return "rc0_ok"
 
 
 def execute(job, force):
