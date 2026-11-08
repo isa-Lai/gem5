@@ -1098,18 +1098,21 @@ BaseCache::getNextQueueEntry()
                 DPRINTF(HWPrefetch, "Prefetch %#x has hit in cache, "
                         "dropped.\n", pf_addr);
                 prefetcher->pfHitInCache();
+                prefetcher->releaseDroppedPrefetch(pkt, pf_addr);
                 // free the request and packet
                 delete pkt;
             } else if (mshrQueue.findMatch(pf_addr, pkt->isSecure())) {
                 DPRINTF(HWPrefetch, "Prefetch %#x has hit in a MSHR, "
                         "dropped.\n", pf_addr);
                 prefetcher->pfHitInMSHR();
+                prefetcher->releaseDroppedPrefetch(pkt, pf_addr);
                 // free the request and packet
                 delete pkt;
             } else if (writeBuffer.findMatch(pf_addr, pkt->isSecure())) {
                 DPRINTF(HWPrefetch, "Prefetch %#x has hit in the "
                         "Write Buffer, dropped.\n", pf_addr);
                 prefetcher->pfHitInWB();
+                prefetcher->releaseDroppedPrefetch(pkt, pf_addr);
                 // free the request and packet
                 delete pkt;
             } else {
@@ -1117,6 +1120,10 @@ BaseCache::getNextQueueEntry()
                 // (hwpf_mshr_misses)
                 assert(pkt->req->requestorId() < system->maxRequestors());
                 stats.cmdStats(pkt).mshrMisses[pkt->req->requestorId()]++;
+
+                if (pkt->isCompassSeed()) {
+                    prefetcher->notifySeedIssued(pkt);
+                }
 
                 // allocate an MSHR and return it, note
                 // that we send the packet straight away, so do not

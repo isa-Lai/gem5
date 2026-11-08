@@ -430,6 +430,14 @@ class Base : public ClockedObject
     virtual Tick nextPrefetchReadyTime() const = 0;
 
     virtual void
+    releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr)
+    {}
+
+    virtual void
+    notifySeedIssued(const PacketPtr &pkt)
+    {}
+
+    virtual void
     prefetchUnused()
     {
         prefetchStats.pfUnused++;

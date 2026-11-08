@@ -218,7 +218,9 @@ class Queued : public Base
 
     // Called when a candidate produced by calculatePrefetch(pkt, ...) was
     // dropped before being queued; lets iHWP free its internal buffer entry.
-    virtual void releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr) {}
+    void
+    releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr) override
+    {}
 
     // COMPASS v2: called with the physical address a queued prefetch packet
     // is created for; returns true (consuming the mark) if that address is a
@@ -230,7 +232,9 @@ class Queued : public Base
         return false;
     }
 
-    virtual void notifySeedSquashed() {}
+    void
+    notifySeedIssued(const PacketPtr &pkt) override
+    {}
 
     PacketPtr getPacket() override;
 

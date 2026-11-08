@@ -190,13 +190,11 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
         while (itr != pfq.end()) {
             if (blockAddress(itr->pfInfo.getAddr()) == blk_addr &&
                 itr->pfInfo.isSecure() == is_secure) {
-                DPRINTF(HWPrefetch, "Removing pf candidate addr: %#x "
+                DPRINTF(HWPrefetch,
+                        "Removing pf candidate addr: %#x "
                         "(cl: %#x), demand request going to the same addr\n",
                         itr->pfInfo.getAddr(),
                         blockAddress(itr->pfInfo.getAddr()));
-                if (itr->pkt && itr->pkt->isCompassSeed()) {
-                    notifySeedSquashed();
-                }
                 delete itr->pkt;
                 itr = pfq.erase(itr);
                 squashInternalBuffer(pkt);
@@ -531,6 +529,7 @@ Queued::insert(const PacketPtr &pkt, PrefetchInfo &new_pfi,
         }
         dpp.pkt->set_iHWP(iHWPSrc);
         dpp.pkt->setMetaISARequestorID(pkt->getMetaISARequestorID());
+        dpp.pkt->setMetaISAStreamID(pkt->getMetaISAStreamID());
         DPRINTF(HWPrefetch, "Prefetch queued. "
                 "addr:%#x priority: %3d tick:%lld.\n",
                 new_pfi.getAddr(), priority, pf_time);

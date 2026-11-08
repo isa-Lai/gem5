@@ -271,7 +271,6 @@ InterStellar::iStats::iStats(statistics::Group *parent)
                             if (preftchedAddress < seedPageEnd) {
                                 pendingSeedAddrs.insert(preftchedAddress &
                                                         ~(Addr)(blkSize - 1));
-                                ++stats_ihwp.tot_compass_seeds;
                             }
                         }
                     } else {
@@ -575,11 +574,9 @@ InterStellar::iStats::iStats(statistics::Group *parent)
  }
 
  void
- InterStellar::notifySeedSquashed()
+ InterStellar::notifySeedIssued(const PacketPtr &pkt)
  {
-     if (stats_ihwp.tot_compass_seeds.value() > 0) {
-         --stats_ihwp.tot_compass_seeds;
-     }
+     ++stats_ihwp.tot_compass_seeds;
  }
 
  void
