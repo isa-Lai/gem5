@@ -1,15 +1,14 @@
 #include "mem/ramulator.hh"
 
+#include "Ramulator/src/Gem5Wrapper.h"
+#include "Ramulator/src/Request.h"
+#include "Ramulator/src/iPrefetcherCircBuffer.h"
 #include "base/callback.hh"
 #include "debug/IPREFETCHER.hh"
 #include "debug/Ramulator.hh"
 #include "debug/RamulatorData.hh"
 #include "mem/cache/base.hh"
 #include "sim/system.hh"
-
-#include "Ramulator/src/Gem5Wrapper.h"
-#include "Ramulator/src/Request.h"
-#include "Ramulator/src/iPrefetcherCircBuffer.h"
 
 using namespace gem5;
 using namespace gem5::memory;
@@ -86,8 +85,8 @@ Ramulator::Ramulator(const RamulatorParams &p)
         .precision(0);
 
    blocked_while_ready_at_iMC.name("blocked_while_ready_at_iMC")
-       .desc("Cycles where LLC was blocked by MSHR exhaustion while eligible "
-             "useful data were ready (W=0) in iBuffer")
+       .desc("Cycles where LLC was blocked by MSHR exhaustion while "
+             "eligible useful data were ready (W=0) in iBuffer")
        .precision(0);
 }
 Ramulator::~Ramulator()
