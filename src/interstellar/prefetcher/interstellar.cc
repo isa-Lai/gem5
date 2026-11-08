@@ -207,6 +207,7 @@ InterStellar::iStats::iStats(statistics::Group *parent)
             // Stage 2: Bounded Interval Delivery & Credits
             IntervalDescriptor &interval = intervalTable[iDirStreamTableKey];
             if (interval.startAddr == 0 ||
+                baseAddr < interval.startAddr ||
                 baseAddr >=
                     interval.startAddr + interval.windowSize * iPrefetchStep) {
                 interval.startAddr = baseAddr;
@@ -238,13 +239,13 @@ InterStellar::iStats::iStats(statistics::Group *parent)
                     IpreftecherQueueKey iPrefetcherQkey(preftchedAddress,
                                                         streamID, requestorID);
 
-                    interval.authorisedBitmap |= (1ULL << i);
-                    creditsAvailable--;
-                    sFree--;
-                    sReserved++;
-                    assert(sFree + sReserved + sResident == sTotal);
-
                     if (!iPrefetcherCacheBuffer->find(iPrefetcherQkey)) {
+                        interval.authorisedBitmap |= (1ULL << i);
+                        creditsAvailable--;
+                        sFree--;
+                        sReserved++;
+                        assert(sFree + sReserved + sResident == sTotal);
+
                         addresses.push_back(AddrPriority(preftchedAddress, 0));
                         IPreftecherQueueEntry iPreftchQEnt;
                         iPreftchQEnt.W = 1;
@@ -273,6 +274,10 @@ InterStellar::iStats::iStats(statistics::Group *parent)
                                 ++stats_ihwp.tot_compass_seeds;
                             }
                         }
+                    } else {
+                        // Already in buffer: mark authorised in interval bitmap so we don't
+                        // retry it, but do NOT consume a credit or slot reservation.
+                        interval.authorisedBitmap |= (1ULL << i);
                     }
                 }
             }
@@ -532,6 +537,9 @@ InterStellar::iStats::iStats(statistics::Group *parent)
             if (waiting && sReserved > 0) {
                 sReserved--;
                 sFree++;
+                if (creditsAvailable < creditsTotal) {
+                    creditsAvailable++;
+                }
                 assert(sFree + sReserved + sResident == sTotal);
             } else if (!waiting && sResident > 0) {
                 sResident--;
@@ -564,6 +572,14 @@ InterStellar::iStats::iStats(statistics::Group *parent)
              "[CompassSeed] packet issued for seed addr %#x -> demand-class\n",
              blkAddr);
      return true;
+ }
+
+ void
+ InterStellar::notifySeedSquashed()
+ {
+     if (stats_ihwp.tot_compass_seeds.value() > 0) {
+         --stats_ihwp.tot_compass_seeds;
+     }
  }
 
  void
@@ -613,6 +629,9 @@ InterStellar::iStats::iStats(statistics::Group *parent)
               if (waiting && sReserved > 0) {
                   sReserved--;
                   sFree++;
+                  if (creditsAvailable < creditsTotal) {
+                      creditsAvailable++;
+                  }
                   assert(sFree + sReserved + sResident == sTotal);
               } else if (!waiting && sResident > 0) {
                   sResident--;

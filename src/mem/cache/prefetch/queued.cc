@@ -194,6 +194,9 @@ Queued::notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi)
                         "(cl: %#x), demand request going to the same addr\n",
                         itr->pfInfo.getAddr(),
                         blockAddress(itr->pfInfo.getAddr()));
+                if (itr->pkt && itr->pkt->isCompassSeed()) {
+                    notifySeedSquashed();
+                }
                 delete itr->pkt;
                 itr = pfq.erase(itr);
                 squashInternalBuffer(pkt);

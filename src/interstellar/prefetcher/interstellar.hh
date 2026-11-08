@@ -222,6 +222,7 @@ class Base;
       * while keeping its is_HWP identity for all cache-side accounting.
       */
      bool takeSeedAddr(Addr addr) override;
+     void notifySeedSquashed() override;
 
      bool handleFill(const PacketPtr &pkt ,  CacheBlk *blk) override;
 

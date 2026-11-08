@@ -230,6 +230,8 @@ class Queued : public Base
         return false;
     }
 
+    virtual void notifySeedSquashed() {}
+
     PacketPtr getPacket() override;
 
     Tick nextPrefetchReadyTime() const override
