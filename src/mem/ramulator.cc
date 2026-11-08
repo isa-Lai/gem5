@@ -22,6 +22,10 @@ unsigned long my_read_cnt = 0;
 unsigned long my_write_cnt = 0;
 unsigned long my_total_cnt = 0;
 int const COREID_MASK              = 0xFFFF;
+static std::vector<Ramulator *> ramulator_instances;
+static ramulator::circBuffer<ramulator::iBufferKeyClass,
+                             ramulator::IpreftecherQueueEntry>
+    *shared_iBatchBuffer[MAX_CHANNELS][MAX_BANKS] = {nullptr};
 
 Ramulator::Ramulator(const RamulatorParams &p)
     : AbstractMemory(p),
@@ -50,11 +54,22 @@ Ramulator::Ramulator(const RamulatorParams &p)
     memset(iBatchBuffer, 0, sizeof(iBatchBuffer));
     channels     = stoi(configs["channels"], NULL, 0);
 
-    for (int ch_id = 0; ch_id < channels; ch_id++) {
-        for (int ba_ind = 0; ba_ind < MAX_BANKS; ba_ind++) {
-            iBatchBuffer[ch_id][ba_ind] = new ramulator::circBuffer<ramulator::iBufferKeyClass, ramulator::IpreftecherQueueEntry>();
+    if (!shared_iBatchBuffer[0][0]) {
+        for (int ch_id = 0; ch_id < channels; ch_id++) {
+            for (int ba_ind = 0; ba_ind < MAX_BANKS; ba_ind++) {
+                shared_iBatchBuffer[ch_id][ba_ind] =
+                    new ramulator::circBuffer<ramulator::iBufferKeyClass,
+                                              ramulator::IpreftecherQueueEntry>();
+            }
         }
     }
+    for (int ch_id = 0; ch_id < channels; ch_id++) {
+        for (int ba_ind = 0; ba_ind < MAX_BANKS; ba_ind++) {
+            iBatchBuffer[ch_id][ba_ind] = shared_iBatchBuffer[ch_id][ba_ind];
+        }
+    }
+
+    ramulator_instances.push_back(this);
 
     // COMPASS Stage 1 horizon K, consumed by Controller (key "prepK")
     configs.update("prepK", p.prepK);
@@ -92,6 +107,11 @@ Ramulator::Ramulator(const RamulatorParams &p)
 }
 Ramulator::~Ramulator()
 {
+    auto it = std::find(ramulator_instances.begin(),
+                        ramulator_instances.end(), this);
+    if (it != ramulator_instances.end()) {
+        ramulator_instances.erase(it);
+    }
     // delete wrapper;
     // daz3
     if (del_wrapper == false)
@@ -539,6 +559,19 @@ void Ramulator::readComplete(ramulator::Request &req , int bank_id)
     int ch_idx = 0  ; // In all DRAM Standrads , Channel is at level 0 -> int(T::Level::Channel);
     int ch_id = req.addr_vec[ch_idx];
 
+    // Find which Ramulator instance holds this address in its reads queue (if any)
+    Ramulator *target = nullptr;
+    if (reads.find(req.addr) != reads.end()) {
+        target = this;
+    } else {
+        for (auto *r : ramulator_instances) {
+            if (r != this && r->reads.find(req.addr) != r->reads.end()) {
+                target = r;
+                break;
+            }
+        }
+    }
+
     bool inIPDQ = this->iBatchBuffer[ch_id][bank_id]->find(iPrefetcherQkey);
     bool inIPDQandRequested = false;
 
@@ -562,7 +595,7 @@ void Ramulator::readComplete(ramulator::Request &req , int bank_id)
        }
 
        else { // Request can be done before it is iPrefetched inside MC
-           if (reads.find(req.addr) != reads.end()) {
+           if (target != nullptr) {
                (*this->iBatchBuffer[ch_id][bank_id])[iPrefetcherQkey].R = 1;
                inIPDQandRequested = true;
                iprefetches_completed_cnt_per_Stream[req.metaISAStreamID]++;
@@ -584,7 +617,7 @@ void Ramulator::readComplete(ramulator::Request &req , int bank_id)
        }
 
    } else // not in inIPDQ and not in reads -> overwritten iPrefetch
-       if (reads.find(req.addr) == reads.end()) {
+       if (target == nullptr) {
            iprefetches_wasted_per_Stream[req.metaISAStreamID]++;
            return;
        }
@@ -595,16 +628,17 @@ void Ramulator::readComplete(ramulator::Request &req , int bank_id)
         DPRINTF(Ramulator, "(%llu) Read to 0x%lx completed.\n", curTick() / ticks_per_clk, req.addr);
         // It will be removed from reads queue( if the corrsponding request still in readq!)
         // sometimes , iBatch may be formed for a request that is in the readq and then remove the corresponding entry from the readq !
-        auto &pkt_q = reads.find(req.addr)->second;
-        //assert(pkt_q!=reads.end());
-        {
-            PacketPtr pkt = pkt_q.front();
-            pkt_q.pop_front();
-            if (!pkt_q.size())
-                reads.erase(req.addr);
-            // added counter to track requests in flight
-            --requestsInFlight;
-            accessAndRespond(pkt);
+        if (target != nullptr) {
+            auto it = target->reads.find(req.addr);
+            if (it != target->reads.end() && !it->second.empty()) {
+                PacketPtr pkt = it->second.front();
+                it->second.pop_front();
+                if (!it->second.size())
+                    target->reads.erase(it);
+                // added counter to track requests in flight
+                --target->requestsInFlight;
+                target->accessAndRespond(pkt);
+            }
         }
     }
 }

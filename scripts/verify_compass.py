@@ -827,7 +827,7 @@ def ln(x):
     return math.log(max(x, 1e-30))
 
 
-def evaluate(benches, lats, ks, results, checksums, rcs, checks):
+def evaluate(benches, lats, ks, results, checksums, rcs, checks, wanted_arms=None):
     perf = []
     for b in benches:
         must_prep = BENCHMARKS[b]["must_prep"]
@@ -835,6 +835,13 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
         for lat in lats:
             scope = f"{b}@{lat}"
             active_arms = arms_for(ks)
+            if wanted_arms:
+                active_arms = [
+                    a
+                    for a in active_arms
+                    if a[0] in wanted_arms
+                    or (a[0] == "iPF_IPP_uncoord" and "iPF_noCoord" in wanted_arms)
+                ]
             present_arm_names = {
                 k[2] for k in results.keys() if k[0] == b and k[1] == lat
             }
@@ -1121,11 +1128,39 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks):
                             ),
                         }
                     )
+            elif "A" in good and "stock" in good:
+                ta = good["A"]["seconds"]
+                tstock = good["stock"]["seconds"]
+                perf.append(
+                    {
+                        "benchmark": b,
+                        "latency": lat,
+                        "K": 1,
+                        "T_A": ta,
+                        "T_B": 0.0,
+                        "T_C": 0.0,
+                        "T_D": 0.0,
+                        "S_B/A": 0.0,
+                        "S_C/A": 0.0,
+                        "S_D/A": 0.0,
+                        "I": 0.0,
+                        "S_A/stock": tstock / ta if ta else 0.0,
+                    }
+                )
     return perf
 
 
 def write_outputs(
-    benches, lats, ks, results, checksums, rcs, checks, perf, profile
+    benches,
+    lats,
+    ks,
+    results,
+    checksums,
+    rcs,
+    checks,
+    perf,
+    profile,
+    wanted_arms=None,
 ):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     csv_path = os.path.join(OUTPUT_DIR, "verify_results.csv")
@@ -1156,6 +1191,13 @@ def write_outputs(
         "tot_compass_seeds",
     ]
     active_arms = arms_for(ks)
+    if wanted_arms:
+        active_arms = [
+            a
+            for a in active_arms
+            if a[0] in wanted_arms
+            or (a[0] == "iPF_IPP_uncoord" and "iPF_noCoord" in wanted_arms)
+        ]
     present_arm_names = {k[2] for k in results.keys()}
     for candidate in [
         ("iPF_noCoord", None, 1, True, True),
@@ -1474,10 +1516,11 @@ def main():
                 flush=True,
             )
 
+    wanted_arms = [x.strip() for x in args.arms.split(",") if x.strip()] if args.arms else None
     checks = Checks()
-    perf = evaluate(benches, lats, ks, results, checksums, rcs, checks)
+    perf = evaluate(benches, lats, ks, results, checksums, rcs, checks, wanted_arms)
     csv_path, md, gain = write_outputs(
-        benches, lats, ks, results, checksums, rcs, checks, perf, args.profile
+        benches, lats, ks, results, checksums, rcs, checks, perf, args.profile, wanted_arms
     )
     print(
         f"\nPASS={checks.count('PASS')} WARN={checks.count('WARN')} "
