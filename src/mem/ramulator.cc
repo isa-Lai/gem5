@@ -58,36 +58,37 @@ Ramulator::Ramulator(const RamulatorParams &p)
 
     // COMPASS Stage 1 horizon K, consumed by Controller (key "prepK")
     configs.update("prepK", p.prepK);
+    configs.update("cores", std::to_string(p.num_cpus));
     configs.set_core_num(p.num_cpus);
     configs.set_tracefile_directory(p.output_dir);
 
-
     tot_Req_iBatched_Completed
-        .name("Total_Requests_Completed_iBatch")
-        .desc("Total Requests iBatched before and consumed (Completed by demand/HWP Request).")
+        .name(name() + ".Total_Requests_Completed_iBatch")
+        .desc("Total Requests iBatched before and consumed (Completed by "
+              "demand/HWP Request).")
         .precision(0);
 
-    compass_seeds_arrived.name("compass_seeds_arrived")
+    compass_seeds_arrived.name(name() + ".compass_seeds_arrived")
         .desc("COMPASS v2 cell B/D prep seeds accepted by the memory "
               "controller (charged as demand-class).")
         .precision(0);
 
-    iprefetches_completed_cnt_per_Stream
-        .init(TOT_STREAMS)
-        .name("iBatches_Completed_count_per_stream_")
-        .desc("Actual number of requested and completed intelligent batch commands per stream")
+    iprefetches_completed_cnt_per_Stream.init(TOT_STREAMS)
+        .name(name() + ".iBatches_Completed_count_per_stream_")
+        .desc("Actual number of requested and completed intelligent batch "
+              "commands per stream")
         .precision(0);
 
-   iprefetches_wasted_per_Stream
-        .init(TOT_STREAMS)
-        .name("IPrefetches_Wasted_count_per_stream_")
-        .desc("Actual number of requested and completed intelligent prefectches commands per stream")
+    iprefetches_wasted_per_Stream.init(TOT_STREAMS)
+        .name(name() + ".IPrefetches_Wasted_count_per_stream_")
+        .desc("Actual number of requested and completed intelligent "
+              "prefectches commands per stream")
         .precision(0);
 
-   blocked_while_ready_at_iMC.name("blocked_while_ready_at_iMC")
-       .desc("Cycles where LLC was blocked by MSHR exhaustion while "
-             "eligible useful data were ready (W=0) in iBuffer")
-       .precision(0);
+    blocked_while_ready_at_iMC.name(name() + ".blocked_while_ready_at_iMC")
+        .desc("Cycles where LLC was blocked by MSHR exhaustion while "
+              "eligible useful data were ready (W=0) in iBuffer")
+        .precision(0);
 }
 Ramulator::~Ramulator()
 {
@@ -321,7 +322,7 @@ bool Ramulator::recvTimingReq(PacketPtr pkt)
     uint8_t  metaIsaStreamID     = pkt->getMetaISAStreamID()        ;
     uint32_t metaIsaRequestorID = pkt->getMetaISARequestorID();
 
-    if (metaIsaRequestorID > num_cores) {
+    if (metaIsaRequestorID >= num_cores) {
         // In case of such request recieved
         // printf("\t::Request from un-initalized source requestor ID "
         //       "is received(A:%#lx)(Tick:%ld)!\n",

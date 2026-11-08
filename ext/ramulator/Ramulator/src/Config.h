@@ -193,6 +193,16 @@ public:
       }
     }
 
+    void
+    update(const std::string &name, const std::string &value)
+    {
+        if (use_sim_options) {
+            sim_options[name] = value;
+        } else {
+            options[name] = value;
+        }
+    }
+
     template<typename T>
     void update (const std::string& name, const T& value) {
         if(use_sim_options)

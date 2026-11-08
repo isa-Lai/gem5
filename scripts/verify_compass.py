@@ -522,6 +522,25 @@ def parse_stats(path):
                     return vals[vk]
         return 0.0
 
+    def g_sum(*patterns):
+        total = 0.0
+        found = False
+        for pat in patterns:
+            for k, v in vals.items():
+                if pat == "compass_seeds_arrived":
+                    match = (
+                        k.endswith(".compass_seeds_arrived")
+                        or k == "compass_seeds_arrived"
+                    )
+                else:
+                    match = k == pat or k.endswith("." + pat) or pat in k
+                if match:
+                    total += v
+                    found = True
+            if found:
+                return total
+        return 0.0
+
     out.update(
         ok="simTicks" in vals,
         ticks=int(g("simTicks")),
@@ -533,16 +552,10 @@ def parse_stats(path):
         ipf_gen=int(g("system.l3.prefetcher.tot_req_iPrefteched")),
         ipf_full=int(g("system.l3.prefetcher.tot_iHWP_full")),
         l3_demand_mshr=int(g("system.l3.demandMshrMisses::total")),
-        ibatch_done=int(g("ramulator.Total_Requests_Completed_iBatch")),
+        ibatch_done=int(g_sum("Total_Requests_Completed_iBatch")),
         prep_seg=int(prep_seg),
         prep_blocked=int(prep_blk),
-        blocked_while_ready_at_iMC=int(
-            g(
-                "ramulator.blocked_while_ready_at_iMC",
-                "system.mem_ctrls.blocked_while_ready_at_iMC",
-                "blocked_while_ready_at_iMC",
-            )
-        ),
+        blocked_while_ready_at_iMC=int(g_sum("blocked_while_ready_at_iMC")),
         l3_mshr_blocked_cycles=int(
             g(
                 "system.l3.blockedCycles::no_mshrs",
@@ -562,13 +575,7 @@ def parse_stats(path):
                 "overallMshrMisses::total",
             )
         ),
-        compass_seeds_arrived=int(
-            g(
-                "ramulator.compass_seeds_arrived",
-                "system.mem_ctrls.compass_seeds_arrived",
-                "compass_seeds_arrived",
-            )
-        ),
+        compass_seeds_arrived=int(g_sum("compass_seeds_arrived")),
         tot_compass_seeds=int(
             g(
                 "system.l3.prefetcher.tot_compass_seeds",
@@ -630,6 +637,25 @@ def parse_checksum(log):
 
     # 3. Numeric benchmark output lines after filtering telemetry
     telemetry_patterns = [
+        "Timing Constraints:",
+        "freq =",
+        "tCK=",
+        "nBL=",
+        "nCCDS=",
+        "nCCDL=",
+        "nRTRS=",
+        "nCL=",
+        "nRCD=",
+        "nRP=",
+        "nRAS=",
+        "nRC=",
+        "nRTP=",
+        "nWTR=",
+        "nWR=",
+        "nRRD=",
+        "nFAW=",
+        "nRFC=",
+        "nREFI=",
         "iHWP Configs:",
         "Ramulator system configuration file",
         "warn:",
