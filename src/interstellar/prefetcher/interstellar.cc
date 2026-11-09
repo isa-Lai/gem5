@@ -69,16 +69,21 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
    return iHWP_work_parallel_to_Cache;
 }
 
- InterStellar::iStats::iStats(statistics::Group *parent)
+InterStellar::iStats::iStats(statistics::Group *parent)
     : statistics::Group(parent),
-    ADD_STAT(pfdemandHitinIbufferEarly, statistics::units::Count::get(),
-             "number of useful prefetches where demand requests hits in iHWP Buffer before creating MSHR"),
-    ADD_STAT(pfdemandMSHRHitinIbuffer, statistics::units::Count::get(),
-             "number of useful prefetches where demand requests that coleased in MSHR and later hits in iHWP Buffer"),
-    ADD_STAT(tot_req_iPrefteched, statistics::units::Count::get(),
-             "Number of generated interstellar hardware prefetches"),
-    ADD_STAT(tot_iHWP_full, statistics::units::Count::get(),
-             "Number of times iHWP got full")
+      ADD_STAT(pfdemandHitinIbufferEarly, statistics::units::Count::get(),
+               "number of useful prefetches where demand requests hits in "
+               "iHWP Buffer before creating MSHR"),
+      ADD_STAT(pfdemandMSHRHitinIbuffer, statistics::units::Count::get(),
+               "number of useful prefetches where demand requests that "
+               "coleased in MSHR and later hits in iHWP Buffer"),
+      ADD_STAT(tot_req_iPrefteched, statistics::units::Count::get(),
+               "Number of generated interstellar hardware prefetches"),
+      ADD_STAT(tot_iHWP_full, statistics::units::Count::get(),
+               "Number of times iHWP got full"),
+      ADD_STAT(tot_iHWP_dropped, statistics::units::Count::get(),
+               "Number of iHWP buffer entries released because Queued dropped "
+               "the prefetch candidate")
 {
 }
 
@@ -359,6 +364,17 @@ bool   InterStellar::is_iHWP_work_parallel_to_Cache()
 
  }
 
+ void
+ InterStellar::releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr)
+ {
+     IpreftecherQueueKey key(addr, pkt->getMetaISAStreamID(),
+                             pkt->getMetaISARequestorID());
+     if (!iPrefetcherCacheBuffer->find(key)) {
+         return;
+     }
+     iPrefetcherCacheBuffer->delete_data(key);
+     ++stats_ihwp.tot_iHWP_dropped;
+ }
 
  bool
  InterStellar::deleteiHWPEntry(const PacketPtr &pkt)

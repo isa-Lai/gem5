@@ -69,6 +69,7 @@
         statistics::Scalar pfdemandMSHRHitinIbuffer ;
         statistics::Scalar tot_req_iPrefteched;
         statistics::Scalar tot_iHWP_full;
+        statistics::Scalar tot_iHWP_dropped;
     } stats_ihwp;
       /**
       * The latency of data access of an iHWP. It occurs when there is
@@ -167,6 +168,7 @@
                             std::vector<AddrPriority> &addresses,
                             const CacheAccessor &cache) override;
      bool squashInternalBuffer(const PacketPtr &pkt) override;
+     void releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr) override;
 
      bool handleFill(const PacketPtr &pkt ,  CacheBlk *blk) override;
 

@@ -197,7 +197,7 @@ class Queued : public Base
     void
     notify(const CacheAccessProbeArg &acc, const PrefetchInfo &pfi) override;
 
-    void insert(const PacketPtr &pkt, PrefetchInfo &new_pfi, int32_t priority,
+    bool insert(const PacketPtr &pkt, PrefetchInfo &new_pfi, int32_t priority,
                 const CacheAccessor &cache, bool iHWPSrc);
 
     virtual void calculatePrefetch(const PrefetchInfo &pfi,
@@ -210,6 +210,12 @@ class Queued : public Base
 
     // This function is implemented only in iHWP with internal buffer
     virtual bool squashInternalBuffer(const PacketPtr &pkt) {return false;}
+
+    // Called when a candidate produced by calculatePrefetch(pkt, ...) was
+    // dropped before being queued; lets iHWP free its internal buffer entry.
+    virtual void
+    releaseDroppedPrefetch(const PacketPtr &pkt, Addr addr)
+    {}
 
     PacketPtr getPacket() override;
 
