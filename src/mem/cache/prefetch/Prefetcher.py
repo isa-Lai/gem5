@@ -804,13 +804,23 @@ class InterStellarPrefetcher(QueuedPrefetcher):
     type = "InterStellarPrefetcher"
     cxx_class = "gem5::prefetch::InterStellar"
     cxx_header = "interstellar/prefetcher/interstellar.hh"
-    iHWP_data_latency           = Param.Cycles(2, "Data access latency to iHWP")
-    iHWP_work_parallel_to_Cache = Param.Bool(True, "iHWP Works Parallel to Cache?")
-    # interstellar prefetcher needs to consult interstellar engine 
-    interstellar_nucleus = Param.BaseInterstellarEngine(NULL, "Interstellar engine attached to the prefetcher")
+    iHWP_data_latency = Param.Cycles(2, "Data access latency to iHWP")
+    iHWP_work_parallel_to_Cache = Param.Bool(
+        True, "iHWP Works Parallel to Cache?"
+    )
+    # interstellar prefetcher needs to consult interstellar engine
+    interstellar_nucleus = Param.BaseInterstellarEngine(
+        NULL, "Interstellar engine attached to the prefetcher"
+    )
     # Do not consult interstellar prefetcher on instruction accesses
     on_inst = False
 
+    # The RISC-V SE platform runs 64MiB superpages (arch/riscv/page_size.hh
+    # PageShift = 26). "Same page" for the prefetcher's page-crossing guard
+    # must use the virtual-memory page granularity, not the default 4KiB,
+    # or stream candidates that merely cross a 4KiB chunk boundary are
+    # wrongly dropped.
+    page_bytes = "64MiB"
     confidence_counter_bits = Param.Unsigned(
         3, "Number of bits of the confidence counter"
     )
@@ -850,4 +860,3 @@ class InterStellarPrefetcher(QueuedPrefetcher):
     table_replacement_policy = Param.BaseReplacementPolicy(
         RandomRP(), "Replacement policy of the PC table"
     )
-
