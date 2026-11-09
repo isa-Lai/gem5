@@ -690,14 +690,22 @@ def parse_checksum(log):
         "Rank",
         "For elastic trace",
         "system.",
+        "Reads Queue :",
     ]
 
     benchmark_lines = []
+    skip_numeric_line = False
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
+        if skip_numeric_line:
+            skip_numeric_line = False
+            if _is_numeric_line(line):
+                continue
         if any(line.startswith(p) or p in line for p in telemetry_patterns):
+            if line.startswith("Reads Queue :"):
+                skip_numeric_line = True
             continue
         if any(
             line.startswith(p)
@@ -827,7 +835,9 @@ def ln(x):
     return math.log(max(x, 1e-30))
 
 
-def evaluate(benches, lats, ks, results, checksums, rcs, checks, wanted_arms=None):
+def evaluate(
+    benches, lats, ks, results, checksums, rcs, checks, wanted_arms=None
+):
     perf = []
     for b in benches:
         must_prep = BENCHMARKS[b]["must_prep"]
@@ -840,7 +850,10 @@ def evaluate(benches, lats, ks, results, checksums, rcs, checks, wanted_arms=Non
                     a
                     for a in active_arms
                     if a[0] in wanted_arms
-                    or (a[0] == "iPF_IPP_uncoord" and "iPF_noCoord" in wanted_arms)
+                    or (
+                        a[0] == "iPF_IPP_uncoord"
+                        and "iPF_noCoord" in wanted_arms
+                    )
                 ]
             present_arm_names = {
                 k[2] for k in results.keys() if k[0] == b and k[1] == lat
@@ -1516,11 +1529,26 @@ def main():
                 flush=True,
             )
 
-    wanted_arms = [x.strip() for x in args.arms.split(",") if x.strip()] if args.arms else None
+    wanted_arms = (
+        [x.strip() for x in args.arms.split(",") if x.strip()]
+        if args.arms
+        else None
+    )
     checks = Checks()
-    perf = evaluate(benches, lats, ks, results, checksums, rcs, checks, wanted_arms)
+    perf = evaluate(
+        benches, lats, ks, results, checksums, rcs, checks, wanted_arms
+    )
     csv_path, md, gain = write_outputs(
-        benches, lats, ks, results, checksums, rcs, checks, perf, args.profile, wanted_arms
+        benches,
+        lats,
+        ks,
+        results,
+        checksums,
+        rcs,
+        checks,
+        perf,
+        args.profile,
+        wanted_arms,
     )
     print(
         f"\nPASS={checks.count('PASS')} WARN={checks.count('WARN')} "
